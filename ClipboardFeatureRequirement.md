@@ -19,7 +19,7 @@ Two clipboard scenarios to handle:
    - Extract the file path directly from clipboard
    - Reference the image using the local file path
 
-**Storage location:** `{userData}/clipboard-images/` directory, this should be customizable in settings.
+**Storage location:** `{userData}/clipboard-images/` directory.
 
 ---
 
@@ -28,11 +28,14 @@ Two clipboard scenarios to handle:
 Since Super Productivity does **not have a backend server** to store uploaded images, here are some considerations:
 
 - When pasted, store them in **IndexedDB**.
-- Create custom protocol URL and use Service Workers to serve images.
-- Custom protocol should be `supprod://clipboard-images/{unique-id}`.
-- For HTML: `<img src="supprod://clipboard-images/{unique-id}">`
-- For Markdown: `![pasted image](supprod://clipboard-images/{unique-id})`.
+- Use a **directive-based approach** to resolve image URLs at render time:
+  - Link images with custom URL format: `indexeddb://clipboard-images/{unique-id}`
+  - When markdown is rendered, a directive detects `indexeddb://` URLs
+  - The directive loads the image blob from IndexedDB and creates a `blob:` URL
+  - The `blob:` URL is set as the actual image `src`.
 - Size limitations should be enforced (e.g., max 2MB per image).
+
+**Note:** Service Workers cannot intercept custom protocols like `indexeddb://`. They only handle `http://` and `https://` requests. The directive-based approach provides reliable cross-browser support.
 
 **Browser support required:**
 
@@ -46,56 +49,52 @@ Since Super Productivity does **not have a backend server** to store uploaded im
 
 ### Extra Considerations
 
-In markdown, we should support image sizing syntax like `![pasted image](supprod://clipboard-images/{unique-id} =200x150)` to allow users to specify image dimensions.
+In markdown, we should support image sizing syntax like `![pasted image](indexeddb://clipboard-images/{unique-id} =200x150)` to allow users to specify image dimensions.
+
+Use PNG to store a image if pasted image data does not have a specific format.
 
 ## Implementation Tasks
 
 ### Phase 1: Core Clipboard Handling
 
-- [ ] Detect image paste events in markdown editor
-- [ ] Extract image data from clipboard (both image content and file)
-- [ ] Platform detection (Electron vs Web)
-- [ ] Generate unique IDs for pasted images (UUID or timestamp-based)
+- [x] Detect image paste events in markdown editor
+- [x] Extract image data from clipboard (both image content and file)
+- [x] Platform detection (Electron vs Web)
+- [x] Generate unique IDs for pasted images (timestamp + random string)
 
 ### Phase 2: Electron Implementation
 
-- [ ] Add settings option for clipboard images storage location
-- [ ] Create `clipboard-images` directory in configured location (default: user data folder)
-- [ ] Save pasted images with unique filenames
-- [ ] Insert markdown image reference with `file://` path
-- [ ] Handle clipboard file references (copy file vs reference original)
+- [ ] Add settings option for clipboard images storage location (optional)
+- [x] Create `clipboard-images` directory in user data folder
+- [x] Save pasted images with unique filenames
+- [x] Insert markdown image reference with `indexeddb://` URL (resolved to `file://` at render)
+- [x] Handle clipboard file references
 
 ### Phase 3: Web Implementation - Storage Layer
 
-- [ ] Create IndexedDB store for clipboard images (key: unique-id, value: Blob/ArrayBuffer)
-- [ ] Implement image CRUD operations (create, read, delete)
-- [ ] Add image size validation (max 2MB per image)
-- [ ] Implement image compression for oversized images (optional)
+- [x] Create IndexedDB store for clipboard images (key: unique-id, value: Blob)
+- [x] Implement image CRUD operations (create, read, delete, list)
+- [x] Add image size validation (max 2MB per image)
+- [ ] Add an image storage management UI for users to view/delete stored images (optional)
 
-### Phase 4: Web Implementation - Service Worker
+### Phase 4: Web Implementation - URL Resolution
 
-- [ ] Register Service Worker for `supprod://` protocol handling
-- [ ] Implement fetch handler to intercept `supprod://clipboard-images/{id}` requests
-- [ ] Retrieve image from IndexedDB and return as Response
-- [ ] Handle missing images gracefully (placeholder or error image)
+- [x] Create directive to detect `indexeddb://` URLs in rendered markdown
+- [x] Load image blob from IndexedDB when `indexeddb://` URL is detected
+- [x] Create `blob:` URL and set as image src
+- [x] Handle missing images gracefully (error class added)
 
 ### Phase 5: Markdown Editor Integration
 
-- [ ] Extend markdown renderer to support `supprod://` protocol in image src
-- [ ] Support image sizing syntax: `![alt](url =WIDTHxHEIGHT)`
+- [x] Extend markdown renderer to support `indexeddb://` protocol in image src
+- [x] Support image sizing syntax: `![alt](url =WIDTHxHEIGHT)`
 - [ ] Add image resize handles in editor (optional enhancement)
-- [ ] Preview support for pasted images
+- [x] Preview support for pasted images
 
-### Phase 6: Data Sync Considerations
-
-- [ ] Include clipboard images in backup/export
-- [ ] Handle image sync with Dropbox/WebDAV providers
-- [ ] Implement image cleanup for orphaned images (not referenced in any note)
-
-### Phase 7: Polish & Testing
+### Phase 6: Polish & Testing
 
 - [ ] Add progress indicator for large images
-- [ ] Error handling and user notifications
+- [x] Error handling and user notifications
 - [ ] Unit tests for clipboard handling and IndexedDB storage
-- [ ] Unit tests for Service Worker image serving
+- [ ] Unit tests for URL resolution directive
 - [ ] E2E tests for paste functionality (Electron and Web)
