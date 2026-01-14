@@ -3,6 +3,7 @@ import { SimpleCounterCfgComponent } from '../simple-counter/simple-counter-cfg/
 import { SyncSafetyBackupsComponent } from '../../imex/sync/sync-safety-backups/sync-safety-backups.component';
 import { CustomCfgSection } from './global-config.model';
 import { ClickUpAdditionalCfgComponent } from '../issue/providers/clickup/clickup-view-components/clickup-cfg/clickup-additional-cfg.component';
+import { ClipboardImagesCfgComponent } from './clipboard-images-cfg/clipboard-images-cfg.component';
 
 export const customConfigFormSectionComponent = (
   customSection: CustomCfgSection,
@@ -19,6 +20,9 @@ export const customConfigFormSectionComponent = (
 
     case 'CLICKUP_CFG':
       return ClickUpAdditionalCfgComponent;
+
+    case 'CLIPBOARD_IMAGES_CFG':
+      return ClipboardImagesCfgComponent;
 
     default:
       throw new Error('Invalid component');

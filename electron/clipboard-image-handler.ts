@@ -71,7 +71,10 @@ export const initClipboardImageHandlers = (): void => {
   // Save clipboard image
   ipcMain.handle(
     IPC.CLIPBOARD_IMAGE_SAVE,
-    async (_, args: { basePath: string; fileName: string; base64Data: string }) => {
+    async (
+      _,
+      args: { basePath: string; fileName: string; base64Data: string; mimeType: string },
+    ) => {
       const { basePath, fileName, base64Data } = args;
 
       try {
@@ -192,51 +195,98 @@ export const initClipboardImageHandlers = (): void => {
     },
   );
 
-  // Get file paths from clipboard (when user copies files in file explorer)
+  // Copy image file from clipboard to clipboard-images directory
+  ipcMain.handle(
+    IPC.CLIPBOARD_COPY_IMAGE_FILE,
+    async (_, args: { basePath: string; filePath: string }) => {
+      try {
+        const { basePath, filePath } = args;
+        ensureDir(basePath);
+
+        // Generate unique ID
+        const id = Date.now().toString(36) + Math.random().toString(36).substring(2);
+        const ext = path.extname(filePath).toLowerCase();
+        const destFileName = `${id}${ext}`;
+        const destPath = path.join(basePath, destFileName);
+
+        // Copy the file
+        fs.copyFileSync(filePath, destPath);
+
+        // Get file stats
+        const stats = fs.statSync(destPath);
+        const mimeType = getMimeFromExt(ext);
+
+        return {
+          id,
+          mimeType,
+          size: stats.size,
+          createdAt: Date.now(),
+        };
+      } catch (error) {
+        console.error('Error copying clipboard image file:', error);
+        return null;
+      }
+    },
+  );
+
+  // Read image directly from clipboard
+  ipcMain.handle(IPC.CLIPBOARD_READ_IMAGE, async (_, args: { basePath: string }) => {
+    try {
+      const image = clipboard.readImage();
+
+      if (image.isEmpty()) {
+        return null;
+      }
+
+      const { basePath } = args;
+      ensureDir(basePath);
+
+      // Generate unique ID
+      const id = Date.now().toString(36) + Math.random().toString(36).substring(2);
+      const fileName = `${id}.png`;
+      const filePath = path.join(basePath, fileName);
+
+      // Save as PNG
+      const pngBuffer = image.toPNG();
+      fs.writeFileSync(filePath, new Uint8Array(pngBuffer));
+
+      const stats = fs.statSync(filePath);
+
+      return {
+        id,
+        mimeType: 'image/png',
+        size: stats.size,
+        createdAt: Date.now(),
+      };
+    } catch (error) {
+      console.error('[CLIPBOARD] Error reading image from clipboard:', error);
+      return null;
+    }
+  });
+
   ipcMain.handle(IPC.CLIPBOARD_GET_FILE_PATHS, async () => {
     try {
-      const formats = clipboard.availableFormats();
       const filePaths: string[] = [];
 
-      // Windows: Check for file paths in clipboard
-      if (process.platform === 'win32' && formats.includes('FileNameW')) {
-        const filePathsData = clipboard.read('FileNameW');
-        if (filePathsData && typeof filePathsData === 'string') {
-          // Windows file paths are null-separated
-          const paths = filePathsData
-            .split('\0')
-            .filter((p: string) => p.trim().length > 0);
-          filePaths.push(...paths);
-        }
-      }
+      // Note: Electron's clipboard API on Windows doesn't reliably read file paths
+      // when files are copied. clipboard.readImage() is used as fallback.
 
-      // macOS: Check for file URLs
-      if (process.platform === 'darwin' && formats.includes('public.file-url')) {
-        const fileUrl = clipboard.read('public.file-url');
-        if (fileUrl) {
-          // Convert file:// URL to path
-          const urlStr = fileUrl.toString();
-          const match = urlStr.match(/file:\/\/(.+)/);
-          if (match) {
-            const decodedPath = decodeURIComponent(match[1]);
-            filePaths.push(decodedPath);
-          }
-        }
-      }
-
-      // Linux: Check for file URIs
-      if (process.platform === 'linux') {
-        const text = clipboard.readText();
-        if (text && text.startsWith('file://')) {
-          const lines = text.split('\n');
-          for (const line of lines) {
-            if (line.startsWith('file://')) {
-              const match = line.match(/file:\/\/(.+)/);
-              if (match) {
-                const decodedPath = decodeURIComponent(match[1]);
-                filePaths.push(decodedPath);
-              }
+      // Try reading plain text (sometimes contains file paths)
+      const plainText = clipboard.readText();
+      if (plainText && plainText.startsWith('file://')) {
+        const lines = plainText.split('\n');
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith('file://')) {
+            let filePath = trimmed.substring(7);
+            if (process.platform === 'win32' && filePath.startsWith('/')) {
+              filePath = filePath.substring(1);
             }
+            filePath = decodeURIComponent(filePath);
+            if (process.platform === 'win32') {
+              filePath = filePath.replace(/\//g, '\\');
+            }
+            filePaths.push(filePath);
           }
         }
       }
@@ -250,7 +300,7 @@ export const initClipboardImageHandlers = (): void => {
 
       return imageFiles;
     } catch (error) {
-      console.error('Error reading clipboard file paths:', error);
+      console.error('[CLIPBOARD] Error reading clipboard file paths:', error);
       return [];
     }
   });

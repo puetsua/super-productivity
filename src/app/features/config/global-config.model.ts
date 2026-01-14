@@ -194,6 +194,10 @@ export type FocusModeConfig = Readonly<{
   isManualBreakStart?: boolean;
 }>;
 
+export type ClipboardImagesConfig = Readonly<{
+  imagePath?: string | null;
+}>;
+
 export type DailySummaryNote = Readonly<{
   txt?: string;
   lastUpdateDayStr?: string;
@@ -217,6 +221,7 @@ export type GlobalConfigState = Readonly<{
   schedule: ScheduleConfig;
   dominaMode: DominaModeConfig;
   focusMode: FocusModeConfig;
+  clipboardImages: ClipboardImagesConfig;
 
   sync: SyncConfig;
   dailySummaryNote?: DailySummaryNote;
@@ -231,7 +236,8 @@ export type GlobalSectionConfig =
   | ScheduleConfig
   | ReminderConfig
   | DailySummaryNote
-  | SyncConfig;
+  | SyncConfig
+  | ClipboardImagesConfig;
 type Omit<T, K extends keyof T> = Pick<T, Exclude<keyof T, K>>;
 
 export interface LimitedFormlyFieldConfig<FormModel>
@@ -245,7 +251,8 @@ export type CustomCfgSection =
   | 'JIRA_CFG'
   | 'SIMPLE_COUNTER_CFG'
   | 'OPENPROJECT_CFG'
-  | 'CLICKUP_CFG';
+  | 'CLICKUP_CFG'
+  | 'CLIPBOARD_IMAGES_CFG';
 
 // Intermediate model
 export interface ConfigFormSection<FormModel> {

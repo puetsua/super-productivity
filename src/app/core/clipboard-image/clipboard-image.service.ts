@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { IS_ELECTRON } from '../../app.constants';
 import { SnackService } from '../snack/snack.service';
 import { T } from '../../t.const';
+import { GlobalConfigService } from '../../features/config/global-config.service';
 
 const DB_NAME = 'sp-clipboard-images';
 const DB_VERSION = 1;
@@ -45,10 +46,10 @@ export interface ClipboardImagePasteProgress {
 })
 export class ClipboardImageService {
   private _snackService = inject(SnackService);
+  private _globalConfigService = inject(GlobalConfigService);
   private _db: IDBDatabase | null = null;
   private _dbPromise: Promise<IDBDatabase> | null = null;
   private _blobUrlCache = new Map<string, string>();
-  private _electronImagePath: string | null = null;
 
   // ===========================================================================
   // Paste handling
@@ -89,6 +90,38 @@ export class ClipboardImageService {
   ): Promise<ClipboardImagePasteResult> {
     // In Electron, first check if clipboard contains file paths
     if (IS_ELECTRON) {
+      // Check for files in clipboard using clipboardData.files
+      if (clipboardData.files && clipboardData.files.length > 0) {
+        // Try to get file paths using webUtils.getPathForFile
+        for (let i = 0; i < clipboardData.files.length; i++) {
+          const file = clipboardData.files[i];
+
+          if (file.type.startsWith('image/')) {
+            try {
+              const filePath = window.ea.getPathForFile(file);
+
+              if (filePath) {
+                // Don't copy the file, just use the original path directly
+                const imageUrl = `file://${filePath.replace(/\\/g, '/')}`;
+                const fileName = file.name || 'image';
+                const fileNameWithoutExt = fileName.replace(/\.[^.]+$/, '');
+                const markdownText = `![${fileNameWithoutExt}](${imageUrl})`;
+
+                this._snackService.open({
+                  type: 'SUCCESS',
+                  msg: T.F.CLIPBOARD_IMAGE.PASTE_SUCCESS,
+                });
+
+                return { success: true, imageUrl, markdownText };
+              }
+            } catch (error) {
+              console.error('[CLIPBOARD] Error getting file path:', error);
+            }
+          }
+        }
+      }
+
+      // Fallback: try the old method
       const filePathResult = await this._tryGetImageFromFilePaths();
       if (filePathResult) {
         return filePathResult;
@@ -115,7 +148,11 @@ export class ClipboardImageService {
 
       return { success: true, imageUrl, markdownText };
     } catch (error) {
-      console.error('Error saving clipboard image:', error);
+      console.error('[CLIPBOARD] Error saving clipboard image:', error);
+      console.error(
+        '[CLIPBOARD] Error stack:',
+        error instanceof Error ? error.stack : 'no stack',
+      );
       return {
         success: false,
         errorMessage: error instanceof Error ? error.message : 'Unknown error',
@@ -127,24 +164,59 @@ export class ClipboardImageService {
     try {
       const filePaths = await window.ea.getClipboardFilePaths();
       if (!filePaths || filePaths.length === 0) {
+        // Try reading image directly from clipboard
+        const basePath = await this._getElectronImagePath();
+        const result = await window.ea.readClipboardImage(basePath);
+
+        if (result) {
+          // Get the saved file path and generate file:// URL
+          const savedFilePath = await window.ea.getClipboardImagePath(
+            basePath,
+            result.id,
+          );
+          if (savedFilePath) {
+            const imageUrl = `file://${savedFilePath.replace(/\\/g, '/')}`;
+            const markdownText = `![pasted image](${imageUrl})`;
+
+            this._snackService.open({
+              type: 'SUCCESS',
+              msg: T.F.CLIPBOARD_IMAGE.PASTE_SUCCESS,
+            });
+
+            return { success: true, imageUrl, markdownText };
+          }
+        }
+
         return null;
       }
 
       // Use the first image file found
       const filePath = filePaths[0];
+      const basePath = await this._getElectronImagePath();
+
+      // Copy the file to clipboard-images directory
+      const result = await window.ea.copyClipboardImageFile(basePath, filePath);
+      if (!result) {
+        return null;
+      }
+
+      // Get the saved file path and generate file:// URL
+      const savedFilePath = await window.ea.getClipboardImagePath(basePath, result.id);
+      if (!savedFilePath) {
+        return null;
+      }
+
+      const imageUrl = `file://${savedFilePath.replace(/\\/g, '/')}`;
       const fileName = filePath.split(/[\\/]/).pop() || 'image';
       const fileNameWithoutExt = fileName.replace(/\.[^.]+$/, '');
-
-      // Use file:// URL directly instead of copying the file
-      const fileUrl = `file://${filePath.replace(/\\/g, '/')}`;
-      const markdownText = `![${fileNameWithoutExt}](${fileUrl})`;
+      const markdownText = `![${fileNameWithoutExt}](${imageUrl})`;
 
       this._snackService.open({
         type: 'SUCCESS',
         msg: T.F.CLIPBOARD_IMAGE.PASTE_SUCCESS,
       });
 
-      return { success: true, imageUrl: fileUrl, markdownText };
+      return { success: true, imageUrl, markdownText };
     } catch (error) {
       console.error('Error getting image from file paths:', error);
       return null; // Fall back to regular clipboard handling
@@ -407,11 +479,15 @@ export class ClipboardImageService {
   // ===========================================================================
 
   private async _getElectronImagePath(): Promise<string> {
-    if (this._electronImagePath) return this._electronImagePath;
+    // Always fetch from config to respect user changes
+    const customPath = this._globalConfigService.clipboardImages()?.imagePath;
+    if (customPath) {
+      return customPath;
+    }
 
+    // Use default path
     const userDataPath = await window.ea.getUserDataPath();
-    this._electronImagePath = `${userDataPath}/clipboard-images`;
-    return this._electronImagePath;
+    return `${userDataPath}/clipboard-images`;
   }
 
   private async _saveImageElectron(
@@ -426,8 +502,16 @@ export class ClipboardImageService {
     const arrayBuffer = await blob.arrayBuffer();
     const base64 = this._arrayBufferToBase64(arrayBuffer);
 
-    await window.ea.saveClipboardImage(basePath, fileName, base64, mimeType);
-    return this.getImageUrl(id);
+    const savedPath = await window.ea.saveClipboardImage(
+      basePath,
+      fileName,
+      base64,
+      mimeType,
+    );
+
+    // Return file:// URL directly for Electron
+    const fileUrl = `file://${savedPath.replace(/\\/g, '/')}`;
+    return fileUrl;
   }
 
   private async _getImageElectron(id: string): Promise<Blob | null> {

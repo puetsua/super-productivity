@@ -1,4 +1,10 @@
-import { ipcRenderer, IpcRendererEvent, webFrame, contextBridge } from 'electron';
+import {
+  ipcRenderer,
+  IpcRendererEvent,
+  webFrame,
+  contextBridge,
+  webUtils,
+} from 'electron';
 import { ElectronAPI } from './electronAPI.d';
 import { IPCEventValue } from './shared-with-frontend/ipc-events.const';
 import { LocalBackupMeta } from '../src/app/imex/local-backup/local-backup.model';
@@ -50,6 +56,9 @@ const ea: ElectronAPI = {
 
   pickDirectory: () => _invoke('PICK_DIRECTORY') as Promise<string | undefined>,
 
+  showOpenDialog: (options: { properties: string[]; title?: string }) =>
+    _invoke('SHOW_OPEN_DIALOG', options) as Promise<string[] | undefined>,
+
   // STANDARD
   // --------
   setZoomFactor: (zoomFactor: number) => {
@@ -94,6 +103,34 @@ const ea: ElectronAPI = {
     _invoke('CLIPBOARD_IMAGE_GET_PATH', { basePath, imageId }) as Promise<string | null>,
 
   getClipboardFilePaths: () => _invoke('CLIPBOARD_GET_FILE_PATHS') as Promise<string[]>,
+
+  copyClipboardImageFile: (basePath: string, filePath: string) =>
+    _invoke('CLIPBOARD_COPY_IMAGE_FILE', {
+      basePath,
+      filePath,
+    }) as Promise<{
+      id: string;
+      mimeType: string;
+      size: number;
+      createdAt: number;
+    } | null>,
+
+  readClipboardImage: (basePath: string) =>
+    _invoke('CLIPBOARD_READ_IMAGE', { basePath }) as Promise<{
+      id: string;
+      mimeType: string;
+      size: number;
+      createdAt: number;
+    } | null>,
+
+  getPathForFile: (file: File) => {
+    try {
+      return webUtils.getPathForFile(file);
+    } catch (error) {
+      console.error('[CLIPBOARD] Error getting path for file:', error);
+      return null;
+    }
+  },
 
   // SEND
   // ----

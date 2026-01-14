@@ -1,6 +1,7 @@
 import { updateGlobalConfigSection } from './global-config.actions';
 import { createFeatureSelector, createReducer, createSelector, on } from '@ngrx/store';
 import {
+  ClipboardImagesConfig,
   DominaModeConfig,
   EvaluationConfig,
   FocusModeConfig,
@@ -68,6 +69,10 @@ export const selectIsDominaModeConfig = createSelector(
 export const selectFocusModeConfig = createSelector(
   selectConfigFeatureState,
   (cfg): FocusModeConfig => cfg.focusMode,
+);
+export const selectClipboardImagesConfig = createSelector(
+  selectConfigFeatureState,
+  (cfg): ClipboardImagesConfig => cfg.clipboardImages,
 );
 export const selectPomodoroConfig = createSelector(
   selectConfigFeatureState,

@@ -53,6 +53,11 @@ export interface ElectronAPI {
 
   pickDirectory(): Promise<string | undefined>;
 
+  showOpenDialog(options: {
+    properties: string[];
+    title?: string;
+  }): Promise<string[] | undefined>;
+
   // checkDirExists(dirPath: string): Promise<true | Error>;
 
   // STANDARD
@@ -108,6 +113,24 @@ export interface ElectronAPI {
   getClipboardImagePath(basePath: string, imageId: string): Promise<string | null>;
 
   getClipboardFilePaths(): Promise<string[]>;
+  copyClipboardImageFile(
+    basePath: string,
+    filePath: string,
+  ): Promise<{
+    id: string;
+    mimeType: string;
+    size: number;
+    createdAt: number;
+  } | null>;
+
+  readClipboardImage(basePath: string): Promise<{
+    id: string;
+    mimeType: string;
+    size: number;
+    createdAt: number;
+  } | null>;
+
+  getPathForFile(file: File): string | null;
 
   // SEND
   // ----

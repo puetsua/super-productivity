@@ -93,7 +93,9 @@ bootstrapApplication(AppComponent, {
           provide: MARKED_OPTIONS,
           useFactory: markedOptionsFactory,
         },
-        sanitize: SecurityContext.HTML,
+        // Don't sanitize in Electron - we trust local file:// URLs
+        // In web, ngx-markdown will use default browser sanitization
+        sanitize: IS_ELECTRON ? SecurityContext.NONE : SecurityContext.HTML,
       }),
       MaterialCssVarsModule.forRoot(),
       MatSidenavModule,
