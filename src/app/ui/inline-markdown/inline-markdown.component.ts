@@ -25,6 +25,7 @@ import { GlobalConfigService } from '../../features/config/global-config.service
 import { isMarkdownChecklist } from '../../features/markdown-checklist/is-markdown-checklist';
 import { fadeInAnimation } from '../animations/fade.ani';
 import { DialogFullscreenMarkdownComponent } from '../dialog-fullscreen-markdown/dialog-fullscreen-markdown.component';
+import { ClipboardImageService } from '../../core/clipboard-image/clipboard-image.service';
 
 const HIDE_OVERFLOW_TIMEOUT_DURATION = 300;
 
@@ -40,6 +41,7 @@ export class InlineMarkdownComponent implements OnInit, OnDestroy {
   private _cd = inject(ChangeDetectorRef);
   private _globalConfigService = inject(GlobalConfigService);
   private _matDialog = inject(MatDialog);
+  private _clipboardImageService = inject(ClipboardImageService);
 
   readonly isLock = input<boolean>(false);
   readonly isShowControls = input<boolean>(false);
@@ -59,6 +61,7 @@ export class InlineMarkdownComponent implements OnInit, OnDestroy {
   isChecklistMode = signal(false);
   isShowEdit = signal(false);
   modelCopy = signal<string | undefined>(undefined);
+  resolvedModel = signal<string | undefined>(undefined);
 
   isTurnOffMarkdownParsing = computed(() => {
     const misc = this._globalConfigService.misc();
@@ -85,6 +88,7 @@ export class InlineMarkdownComponent implements OnInit, OnDestroy {
   @Input() set model(v: string | undefined) {
     this._model = v;
     this.modelCopy.set(v);
+    this._updateResolvedModel(v);
 
     if (!this.isShowEdit()) {
       window.setTimeout(() => {
@@ -145,6 +149,63 @@ export class InlineMarkdownComponent implements OnInit, OnDestroy {
     if ((ev.key === 'Enter' && ev.ctrlKey) || ev.code === 'Escape') {
       this.untoggleShowEdit();
       this.keyboardUnToggle.emit(ev);
+    }
+  }
+
+  async pasteHandler(ev: ClipboardEvent): Promise<void> {
+    if (!ev.clipboardData) {
+      return;
+    }
+
+    // Check if clipboard contains an image
+    const progress = this._clipboardImageService.handlePasteWithProgress(ev);
+    if (progress) {
+      ev.preventDefault();
+
+      const textareaEl = this.textareaEl();
+      if (textareaEl) {
+        const { value, selectionStart, selectionEnd } = textareaEl.nativeElement;
+
+        // Insert placeholder text at cursor position
+        const newContent =
+          value.substring(0, selectionStart) +
+          progress.placeholderText +
+          value.substring(selectionEnd);
+
+        this.modelCopy.set(newContent);
+        this._model = newContent;
+        this.changed.emit(newContent);
+
+        // Wait for the image to be saved
+        const result = await progress.resultPromise;
+
+        if (result.success && result.markdownText) {
+          // Replace placeholder with actual markdown
+          const finalContent = (this._model || '').replace(
+            progress.placeholderText,
+            result.markdownText,
+          );
+
+          this.modelCopy.set(finalContent);
+          this._model = finalContent;
+          this.changed.emit(finalContent);
+
+          // Move cursor after the inserted text
+          const newCursorPos = selectionStart + result.markdownText.length;
+          setTimeout(() => {
+            textareaEl.nativeElement.value = finalContent;
+            textareaEl.nativeElement.focus();
+            textareaEl.nativeElement.setSelectionRange(newCursorPos, newCursorPos);
+            this.resizeTextareaToFit();
+          });
+        } else {
+          // Remove placeholder on failure
+          const cleanContent = (this._model || '').replace(progress.placeholderText, '');
+          this.modelCopy.set(cleanContent);
+          this._model = cleanContent;
+          this.changed.emit(cleanContent);
+        }
+      }
     }
   }
 
@@ -346,5 +407,15 @@ export class InlineMarkdownComponent implements OnInit, OnDestroy {
         }
       }
     }
+  }
+
+  private async _updateResolvedModel(content: string | undefined): Promise<void> {
+    if (!content) {
+      this.resolvedModel.set(content);
+      return;
+    }
+    const resolved = await this._clipboardImageService.resolveMarkdownImages(content);
+    this.resolvedModel.set(resolved);
+    this._cd.markForCheck();
   }
 }

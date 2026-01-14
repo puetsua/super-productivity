@@ -85,6 +85,30 @@ export interface ElectronAPI {
 
   isFlatpak(): boolean;
 
+  // CLIPBOARD IMAGES
+  // ----------------
+  saveClipboardImage(
+    basePath: string,
+    fileName: string,
+    base64Data: string,
+    mimeType: string,
+  ): Promise<string>;
+
+  loadClipboardImage(
+    basePath: string,
+    imageId: string,
+  ): Promise<{ base64: string; mimeType: string } | null>;
+
+  deleteClipboardImage(basePath: string, imageId: string): Promise<boolean>;
+
+  listClipboardImages(
+    basePath: string,
+  ): Promise<{ id: string; mimeType: string; createdAt: number; size: number }[]>;
+
+  getClipboardImagePath(basePath: string, imageId: string): Promise<string | null>;
+
+  getClipboardFilePaths(): Promise<string[]>;
+
   // SEND
   // ----
   reloadMainWin(): void;

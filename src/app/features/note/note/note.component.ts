@@ -1,10 +1,12 @@
 import {
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   inject,
   input,
   Input,
   OnChanges,
+  signal,
   SimpleChanges,
   viewChild,
 } from '@angular/core';
@@ -34,6 +36,7 @@ import {
 import { AsyncPipe } from '@angular/common';
 import { TranslatePipe } from '@ngx-translate/core';
 import { DEFAULT_PROJECT_COLOR } from '../../work-context/work-context.const';
+import { ClipboardImageService } from '../../../core/clipboard-image/clipboard-image.service';
 
 @Component({
   selector: 'note',
@@ -60,6 +63,8 @@ export class NoteComponent implements OnChanges {
   private readonly _noteService = inject(NoteService);
   private readonly _projectService = inject(ProjectService);
   private readonly _workContextService = inject(WorkContextService);
+  private readonly _clipboardImageService = inject(ClipboardImageService);
+  private readonly _cdr = inject(ChangeDetectorRef);
 
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   note!: Note;
@@ -69,6 +74,7 @@ export class NoteComponent implements OnChanges {
   @Input('note') set noteSet(v: Note) {
     this.note = v;
     this._note$.next(v);
+    this._updateNoteTxt();
   }
 
   readonly isFocus = input<boolean>();
@@ -77,6 +83,8 @@ export class NoteComponent implements OnChanges {
 
   isLongNote?: boolean;
   shortenedNote?: string;
+  resolvedContent = signal<string>('');
+  resolvedShortenedContent = signal<string>('');
 
   T: typeof T = T;
 
@@ -196,5 +204,21 @@ export class NoteComponent implements OnChanges {
     const LIMIT = 320;
     this.isLongNote = this.note.content.length > LIMIT;
     this.shortenedNote = this.note.content.substr(0, 160) + '\n\n (...)';
+    this._updateResolvedContent();
+  }
+
+  private async _updateResolvedContent(): Promise<void> {
+    const resolved = await this._clipboardImageService.resolveMarkdownImages(
+      this.note.content,
+    );
+    this.resolvedContent.set(resolved);
+
+    if (this.isLongNote && this.shortenedNote) {
+      const resolvedShort = await this._clipboardImageService.resolveMarkdownImages(
+        this.shortenedNote,
+      );
+      this.resolvedShortenedContent.set(resolvedShort);
+    }
+    this._cdr.markForCheck();
   }
 }

@@ -11,6 +11,7 @@
       (input)="resizeTextareaToFit()"
       (keydown)="keypressHandler($event)"
       (keypress)="keypressHandler($event)"
+      (paste)="pasteHandler($event)"
       [@fadeIn]
       [ngModel]="modelCopy()"
       [placeholder]="placeholderTxt()"
@@ -24,7 +25,7 @@
     <div
       #previewEl
       (click)="clickPreview($event)"
-      [data]="model"
+      [data]="resolvedModel()"
       [hidden]="isShowEdit()"
       class="mat-body-2 markdown-parsed markdown"
       markdown

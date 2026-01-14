@@ -61,6 +61,40 @@ const ea: ElectronAPI = {
   isSnap: () => process && process.env && !!process.env.SNAP,
   isFlatpak: () => process && process.env && !!process.env.FLATPAK_ID,
 
+  // CLIPBOARD IMAGES
+  // ----------------
+  saveClipboardImage: (
+    basePath: string,
+    fileName: string,
+    base64Data: string,
+    mimeType: string,
+  ) =>
+    _invoke('CLIPBOARD_IMAGE_SAVE', {
+      basePath,
+      fileName,
+      base64Data,
+      mimeType,
+    }) as Promise<string>,
+
+  loadClipboardImage: (basePath: string, imageId: string) =>
+    _invoke('CLIPBOARD_IMAGE_LOAD', { basePath, imageId }) as Promise<{
+      base64: string;
+      mimeType: string;
+    } | null>,
+
+  deleteClipboardImage: (basePath: string, imageId: string) =>
+    _invoke('CLIPBOARD_IMAGE_DELETE', { basePath, imageId }) as Promise<boolean>,
+
+  listClipboardImages: (basePath: string) =>
+    _invoke('CLIPBOARD_IMAGE_LIST', { basePath }) as Promise<
+      { id: string; mimeType: string; createdAt: number; size: number }[]
+    >,
+
+  getClipboardImagePath: (basePath: string, imageId: string) =>
+    _invoke('CLIPBOARD_IMAGE_GET_PATH', { basePath, imageId }) as Promise<string | null>,
+
+  getClipboardFilePaths: () => _invoke('CLIPBOARD_GET_FILE_PATHS') as Promise<string[]>,
+
   // SEND
   // ----
   relaunch: () => _send('RELAUNCH'),

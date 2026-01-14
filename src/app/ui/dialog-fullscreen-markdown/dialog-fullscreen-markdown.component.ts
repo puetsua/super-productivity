@@ -1,10 +1,13 @@
 import {
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   DestroyRef,
   ElementRef,
   inject,
+  OnInit,
   output,
+  signal,
   viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -22,6 +25,8 @@ import { LS } from '../../core/persistence/storage-keys.const';
 import { T } from '../../t.const';
 import { isSmallScreen } from '../../util/is-small-screen';
 import * as MarkdownToolbar from '../inline-markdown/markdown-toolbar.util';
+import { ClipboardImageService } from '../../core/clipboard-image/clipboard-image.service';
+import { AsyncPipe } from '@angular/common';
 
 type ViewMode = 'SPLIT' | 'PARSED' | 'TEXT_ONLY';
 const ALL_VIEW_MODES: ['SPLIT', 'PARSED', 'TEXT_ONLY'] = ['SPLIT', 'PARSED', 'TEXT_ONLY'];
@@ -41,10 +46,13 @@ const ALL_VIEW_MODES: ['SPLIT', 'PARSED', 'TEXT_ONLY'] = ['SPLIT', 'PARSED', 'TE
     MatButton,
     MatIconButton,
     TranslatePipe,
+    AsyncPipe,
   ],
 })
-export class DialogFullscreenMarkdownComponent {
+export class DialogFullscreenMarkdownComponent implements OnInit {
   private readonly _destroyRef = inject(DestroyRef);
+  private readonly _clipboardImageService = inject(ClipboardImageService);
+  private readonly _cdr = inject(ChangeDetectorRef);
   _matDialogRef = inject<MatDialogRef<DialogFullscreenMarkdownComponent>>(MatDialogRef);
   data: { content: string } = inject(MAT_DIALOG_DATA) || { content: '' };
 
@@ -54,6 +62,12 @@ export class DialogFullscreenMarkdownComponent {
   readonly textareaEl = viewChild<ElementRef>('textareaEl');
   readonly contentChanged = output<string>();
   private readonly _contentChanges$ = new Subject<string>();
+
+  /**
+   * Resolved content with blob URLs for images (for preview rendering).
+   * Initialized in ngOnInit with raw content, updated asynchronously when images resolve.
+   */
+  resolvedContent = signal<string>('');
 
   constructor() {
     const lastViewMode = localStorage.getItem(LS.LAST_FULLSCREEN_EDIT_VIEW_MODE);
@@ -77,6 +91,13 @@ export class DialogFullscreenMarkdownComponent {
         this.contentChanged.emit(value);
       });
 
+    // Update resolved content when content changes (for preview with images)
+    this._contentChanges$
+      .pipe(debounceTime(100), takeUntilDestroyed(this._destroyRef))
+      .subscribe((value) => {
+        this._updateResolvedContent(value);
+      });
+
     // Handle Escape key - save and close
     this._matDialogRef.disableClose = true;
     this._matDialogRef
@@ -90,9 +111,64 @@ export class DialogFullscreenMarkdownComponent {
       });
   }
 
+  ngOnInit(): void {
+    // Initialize resolved content after this.data might have been modified by subclass
+    this.resolvedContent.set(this.data?.content || '');
+    // Then start async resolution
+    this._updateResolvedContent(this.data?.content || '');
+  }
+
   keydownHandler(ev: KeyboardEvent): void {
     if (ev.key === 'Enter' && ev.ctrlKey) {
       this.close();
+    }
+  }
+
+  async pasteHandler(ev: ClipboardEvent): Promise<void> {
+    if (!ev.clipboardData) {
+      return;
+    }
+
+    // Check if clipboard contains an image
+    const progress = this._clipboardImageService.handlePasteWithProgress(ev);
+    if (progress) {
+      ev.preventDefault();
+
+      const textarea = this.textareaEl()?.nativeElement;
+      if (textarea) {
+        const { value, selectionStart, selectionEnd } = textarea;
+
+        // Insert placeholder text at cursor position
+        this.data.content =
+          value.substring(0, selectionStart) +
+          progress.placeholderText +
+          value.substring(selectionEnd);
+
+        this._contentChanges$.next(this.data.content);
+
+        // Wait for the image to be saved
+        const result = await progress.resultPromise;
+
+        if (result.success && result.markdownText) {
+          // Replace placeholder with actual markdown
+          this.data.content = this.data.content.replace(
+            progress.placeholderText,
+            result.markdownText,
+          );
+          this._contentChanges$.next(this.data.content);
+
+          // Move cursor after the inserted text
+          const newCursorPos = selectionStart + result.markdownText.length;
+          setTimeout(() => {
+            textarea.focus();
+            textarea.setSelectionRange(newCursorPos, newCursorPos);
+          });
+        } else {
+          // Remove placeholder on failure
+          this.data.content = this.data.content.replace(progress.placeholderText, '');
+          this._contentChanges$.next(this.data.content);
+        }
+      }
     }
   }
 
@@ -143,6 +219,12 @@ export class DialogFullscreenMarkdownComponent {
         this._contentChanges$.next(this.data.content);
       }
     }
+  }
+
+  private async _updateResolvedContent(content: string): Promise<void> {
+    const resolved = await this._clipboardImageService.resolveMarkdownImages(content);
+    this.resolvedContent.set(resolved);
+    this._cdr.markForCheck();
   }
 
   // =========================================================================

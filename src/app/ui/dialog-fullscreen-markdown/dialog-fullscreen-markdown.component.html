@@ -158,6 +158,7 @@
         #textareaEl
         [(ngModel)]="data.content"
         (keydown)="keydownHandler($event)"
+        (paste)="pasteHandler($event)"
         (ngModelChange)="ngModelChange($event)"
         rows="1"
         tabindex="3"
@@ -169,7 +170,7 @@
       #previewEl
       (click)="clickPreview($event)"
       markdown
-      [data]="data.content"
+      [data]="resolvedContent()"
       class="markdown-preview markdown"
     ></div>
   }
