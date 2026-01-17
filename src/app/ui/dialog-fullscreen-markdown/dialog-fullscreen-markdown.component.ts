@@ -62,6 +62,7 @@ export class DialogFullscreenMarkdownComponent implements OnInit {
   readonly textareaEl = viewChild<ElementRef>('textareaEl');
   readonly contentChanged = output<string>();
   private readonly _contentChanges$ = new Subject<string>();
+  private _currentPastePlaceholder: string | null = null;
 
   /**
    * Resolved content with blob URLs for images (for preview rendering).
@@ -134,9 +135,18 @@ export class DialogFullscreenMarkdownComponent implements OnInit {
     if (progress) {
       ev.preventDefault();
 
+      // Clean up old paste progress if it exists
+      if (this._currentPastePlaceholder) {
+        this.data.content = this.data.content.replace(this._currentPastePlaceholder, '');
+        this._contentChanges$.next(this.data.content);
+      }
+
       const textarea = this.textareaEl()?.nativeElement;
       if (textarea) {
         const { value, selectionStart, selectionEnd } = textarea;
+
+        // Track current placeholder
+        this._currentPastePlaceholder = progress.placeholderText;
 
         // Insert placeholder text at cursor position
         this.data.content =
@@ -149,24 +159,30 @@ export class DialogFullscreenMarkdownComponent implements OnInit {
         // Wait for the image to be saved
         const result = await progress.resultPromise;
 
-        if (result.success && result.markdownText) {
-          // Replace placeholder with actual markdown
-          this.data.content = this.data.content.replace(
-            progress.placeholderText,
-            result.markdownText,
-          );
-          this._contentChanges$.next(this.data.content);
+        // Only update if this is still the current paste operation
+        if (this._currentPastePlaceholder === progress.placeholderText) {
+          if (result.success && result.markdownText) {
+            // Replace placeholder with actual markdown
+            this.data.content = this.data.content.replace(
+              progress.placeholderText,
+              result.markdownText,
+            );
+            this._contentChanges$.next(this.data.content);
 
-          // Move cursor after the inserted text
-          const newCursorPos = selectionStart + result.markdownText.length;
-          setTimeout(() => {
-            textarea.focus();
-            textarea.setSelectionRange(newCursorPos, newCursorPos);
-          });
-        } else {
-          // Remove placeholder on failure
-          this.data.content = this.data.content.replace(progress.placeholderText, '');
-          this._contentChanges$.next(this.data.content);
+            // Move cursor after the inserted text
+            const newCursorPos = selectionStart + result.markdownText.length;
+            setTimeout(() => {
+              textarea.focus();
+              textarea.setSelectionRange(newCursorPos, newCursorPos);
+            });
+          } else {
+            // Remove placeholder on failure
+            this.data.content = this.data.content.replace(progress.placeholderText, '');
+            this._contentChanges$.next(this.data.content);
+          }
+
+          // Clear tracking
+          this._currentPastePlaceholder = null;
         }
       }
     }

@@ -42,6 +42,7 @@ export class InlineMarkdownComponent implements OnInit, OnDestroy {
   private _globalConfigService = inject(GlobalConfigService);
   private _matDialog = inject(MatDialog);
   private _clipboardImageService = inject(ClipboardImageService);
+  private _currentPastePlaceholder: string | null = null;
 
   readonly isLock = input<boolean>(false);
   readonly isShowControls = input<boolean>(false);
@@ -162,9 +163,23 @@ export class InlineMarkdownComponent implements OnInit, OnDestroy {
     if (progress) {
       ev.preventDefault();
 
+      // Clean up old paste progress if it exists
+      if (this._currentPastePlaceholder) {
+        const cleanContent = (this._model || '').replace(
+          this._currentPastePlaceholder,
+          '',
+        );
+        this.modelCopy.set(cleanContent);
+        this._model = cleanContent;
+        this.changed.emit(cleanContent);
+      }
+
       const textareaEl = this.textareaEl();
       if (textareaEl) {
         const { value, selectionStart, selectionEnd } = textareaEl.nativeElement;
+
+        // Track current placeholder
+        this._currentPastePlaceholder = progress.placeholderText;
 
         // Insert placeholder text at cursor position
         const newContent =
@@ -179,31 +194,40 @@ export class InlineMarkdownComponent implements OnInit, OnDestroy {
         // Wait for the image to be saved
         const result = await progress.resultPromise;
 
-        if (result.success && result.markdownText) {
-          // Replace placeholder with actual markdown
-          const finalContent = (this._model || '').replace(
-            progress.placeholderText,
-            result.markdownText,
-          );
+        // Only update if this is still the current paste operation
+        if (this._currentPastePlaceholder === progress.placeholderText) {
+          if (result.success && result.markdownText) {
+            // Replace placeholder with actual markdown
+            const finalContent = (this._model || '').replace(
+              progress.placeholderText,
+              result.markdownText,
+            );
 
-          this.modelCopy.set(finalContent);
-          this._model = finalContent;
-          this.changed.emit(finalContent);
+            this.modelCopy.set(finalContent);
+            this._model = finalContent;
+            this.changed.emit(finalContent);
 
-          // Move cursor after the inserted text
-          const newCursorPos = selectionStart + result.markdownText.length;
-          setTimeout(() => {
-            textareaEl.nativeElement.value = finalContent;
-            textareaEl.nativeElement.focus();
-            textareaEl.nativeElement.setSelectionRange(newCursorPos, newCursorPos);
-            this.resizeTextareaToFit();
-          });
-        } else {
-          // Remove placeholder on failure
-          const cleanContent = (this._model || '').replace(progress.placeholderText, '');
-          this.modelCopy.set(cleanContent);
-          this._model = cleanContent;
-          this.changed.emit(cleanContent);
+            // Move cursor after the inserted text
+            const newCursorPos = selectionStart + result.markdownText.length;
+            setTimeout(() => {
+              textareaEl.nativeElement.value = finalContent;
+              textareaEl.nativeElement.focus();
+              textareaEl.nativeElement.setSelectionRange(newCursorPos, newCursorPos);
+              this.resizeTextareaToFit();
+            });
+          } else {
+            // Remove placeholder on failure
+            const cleanContent = (this._model || '').replace(
+              progress.placeholderText,
+              '',
+            );
+            this.modelCopy.set(cleanContent);
+            this._model = cleanContent;
+            this.changed.emit(cleanContent);
+          }
+
+          // Clear tracking
+          this._currentPastePlaceholder = null;
         }
       }
     }
