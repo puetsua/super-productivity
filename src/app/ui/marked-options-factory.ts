@@ -1,4 +1,5 @@
 import { MarkedOptions, MarkedRenderer } from 'ngx-markdown';
+import { Hooks } from 'marked';
 
 /**
  * Parses image sizing syntax from title attribute.
@@ -45,25 +46,26 @@ const preprocessMarkdown = (markdown: string): string => {
 export const markedOptionsFactory = (): MarkedOptions => {
   const renderer = new MarkedRenderer();
 
-  renderer.checkbox = (checked: boolean) =>
+  renderer.checkbox = ({ checked }) =>
     `<span class="checkbox material-icons">${checked ? 'check_box' : 'check_box_outline_blank'}</span>`;
 
-  renderer.listitem = (text: string, task: boolean, checked: boolean) => {
+  renderer.listitem = (item) => {
     // Handle task list items
-    if (task) {
-      const isChecked = checked === true;
-      return `<li class="checkbox-wrapper ${isChecked ? 'done' : 'undone'}">${text}</li>`;
+    if (item.task) {
+      const isChecked = item.checked === true;
+      const checkboxIcon = isChecked ? 'check_box' : 'check_box_outline_blank';
+      return `<li class="checkbox-wrapper ${isChecked ? 'done' : 'undone'}"><span class="checkbox material-icons">${checkboxIcon}</span>${item.text}</li>`;
     }
-    return `<li>${text}</li>`;
+    return `<li>${item.text}</li>`;
   };
 
-  renderer.link = (href, title, text) =>
+  renderer.link = ({ href, title, text }) =>
     `<a target="_blank" href="${href}" title="${title || ''}">${text}</a>`;
 
   // Custom image renderer with support for sizing syntax
   // Note: indexeddb:// URLs are pre-resolved to blob: URLs before markdown rendering
   // The sizing dimensions are passed via the title attribute in "width|height" format
-  renderer.image = (href, title, text) => {
+  renderer.image = ({ href, title, text }) => {
     const { width, height } = parseImageDimensionsFromTitle(title);
 
     // Build width and height attributes (not style, as Angular sanitizer strips inline styles)
@@ -78,34 +80,16 @@ export const markedOptionsFactory = (): MarkedOptions => {
     return `<img alt="${text}"${srcAttr}${titleAttr}${widthAttr}${heightAttr} loading="lazy">`;
   };
 
-  renderer.paragraph = (text) => {
-    const split = text.split('\n');
-    return split.reduce((acc, p, i) => {
-      const result = /h(\d)\./.exec(p);
-      if (result !== null) {
-        const h = `h${result[1]}`;
-        return acc + `<${h}>${p.replace(result[0], '')}</${h}>`;
-      }
-
-      if (split.length === 1) {
-        return `<p>` + p + `</p>`;
-      }
-
-      return acc ? (split.length - 1 === i ? acc + p + `</p>` : acc + p) : `<p>` + p;
-    }, '');
-  };
-
   // parse all RFC3986 URIs
   const urlPattern =
     /\b((([A-Za-z][A-Za-z0-9+.-]*):\/\/([^\/?#]*))([^?#]*)(\?([^#]*))?(#(.*))?)\b/gi;
 
   const rendererTxtOld = renderer.text;
-  renderer.text = (text) => {
-    return rendererTxtOld(
-      text.replace(urlPattern, (url) => {
-        return `<a href="${url}" target="_blank">${url}</a>`;
-      }),
-    );
+  renderer.text = (token) => {
+    const textWithLinks = token.text.replace(urlPattern, (url) => {
+      return `<a href="${url}" target="_blank">${url}</a>`;
+    });
+    return rendererTxtOld({ ...token, text: textWithLinks });
   };
 
   const options: MarkedOptions = {
@@ -116,12 +100,9 @@ export const markedOptionsFactory = (): MarkedOptions => {
   };
 
   // Add preprocessing hook to handle image sizing syntax
-  // We need to provide all required hooks functions as stubs
-  (options as any).hooks = {
-    preprocess: preprocessMarkdown,
-    postprocess: (html: string) => html,
-    processAllTokens: (tokens: any[]) => tokens,
-  };
+  const hooks = new Hooks();
+  hooks.preprocess = preprocessMarkdown;
+  options.hooks = hooks;
 
   return options;
 };
