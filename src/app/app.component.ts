@@ -46,6 +46,7 @@ import { BannerComponent } from './core/banner/banner/banner.component';
 import { GlobalProgressBarComponent } from './core-ui/global-progress-bar/global-progress-bar.component';
 import { FocusModeOverlayComponent } from './features/focus-mode/focus-mode-overlay/focus-mode-overlay.component';
 import { ShepherdComponent } from './features/shepherd/shepherd.component';
+import { ShepherdService } from './features/shepherd/shepherd.service';
 import { AsyncPipe, DOCUMENT } from '@angular/common';
 import { RightPanelComponent } from './features/right-panel/right-panel.component';
 import { selectIsOverlayShown } from './features/focus-mode/store/focus-mode.selectors';
@@ -66,6 +67,8 @@ import { WorkContextThemeCfg } from './features/work-context/work-context.model'
 import { isInputElement } from './util/dom-element';
 import { MobileBottomNavComponent } from './core-ui/mobile-bottom-nav/mobile-bottom-nav.component';
 import { StartupService } from './core/startup/startup.service';
+import { KeyboardLayoutService } from './core/keyboard-layout/keyboard-layout.service';
+import { setKeyboardLayoutService } from './util/check-key-combo';
 
 const w = window as Window & { productivityTips?: string[][]; randomIndex?: number };
 const productivityTip: string[] | undefined =
@@ -128,12 +131,14 @@ export class AppComponent implements OnDestroy, AfterViewInit {
   private _ngZone = inject(NgZone);
   private _document = inject(DOCUMENT, { optional: true });
   private _startupService = inject(StartupService);
+  private _keyboardLayoutService = inject(KeyboardLayoutService);
 
   readonly syncTriggerService = inject(SyncTriggerService);
   readonly imexMetaService = inject(ImexViewService);
   readonly workContextService = inject(WorkContextService);
   readonly layoutService = inject(LayoutService);
   readonly globalThemeService = inject(GlobalThemeService);
+  readonly shepherdService = inject(ShepherdService);
   readonly _store = inject(Store);
   readonly T = T;
   readonly isShowMobileButtonNav = this.layoutService.isShowMobileBottomNav;
@@ -225,6 +230,16 @@ export class AppComponent implements OnDestroy, AfterViewInit {
       .subscribe(() => {
         this.showSkipSyncButton.set(true);
       });
+
+    // ! For keyboard shortcuts to work correctly with any layouts (QWERTZ/AZERTY/etc) - user's keyboard layout must be presaved
+    // Connect the service to the utility functions
+    setKeyboardLayoutService(this._keyboardLayoutService);
+    // Defer keyboard layout detection to idle time for better initial load performance
+    if (typeof requestIdleCallback === 'function') {
+      requestIdleCallback(() => this._keyboardLayoutService.saveUserLayout());
+    } else {
+      setTimeout(() => this._keyboardLayoutService.saveUserLayout(), 0);
+    }
   }
 
   skipInitialSync(): void {

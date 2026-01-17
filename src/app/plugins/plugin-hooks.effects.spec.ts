@@ -56,7 +56,17 @@ describe('PluginHooksEffects', () => {
       providers: [
         PluginHooksEffects,
         provideMockActions(() => actions$),
-        provideMockStore({}),
+        provideMockStore({
+          initialState: {
+            globalConfig: {
+              localization: {
+                lng: 'en',
+                dateTimeLocale: undefined,
+                firstDayOfWeek: undefined,
+              },
+            },
+          },
+        }),
         { provide: PluginService, useValue: pluginServiceMock },
       ],
     });
@@ -141,7 +151,6 @@ describe('PluginHooksEffects', () => {
       actions$ = of(
         TaskSharedActions.unscheduleTask({
           id: mockTask.id,
-          reminderId: 'reminder-1',
         }),
       );
 

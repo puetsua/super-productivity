@@ -1,4 +1,5 @@
 import {
+  APP_INITIALIZER,
   enableProdMode,
   ErrorHandler,
   importProvidersFrom,
@@ -12,6 +13,7 @@ import { IS_ELECTRON } from './app/app.constants';
 import { DEFAULT_LANGUAGE, LocalesImports } from './app/core/locale.constants';
 import { IS_ANDROID_WEB_VIEW } from './app/util/is-android-web-view';
 import { androidInterface } from './app/features/android/android-interface';
+import { IS_IOS_NATIVE, IS_NATIVE_PLATFORM } from './app/util/is-native-platform';
 // Type definitions for window.ea are in ./app/core/window-ea.d.ts
 import { App as CapacitorApp } from '@capacitor/app';
 import { GlobalErrorHandler } from './app/core/error-handler/global-error-handler.class';
@@ -36,17 +38,10 @@ import {
 } from '@angular/router';
 import { APP_ROUTES } from './app/app.routes';
 import { StoreModule } from '@ngrx/store';
-import { undoTaskDeleteMetaReducer } from './app/root-store/meta/undo-task-delete.meta-reducer';
-import { actionLoggerReducer } from './app/root-store/meta/action-logger.reducer';
-import {
-  plannerSharedMetaReducer,
-  projectSharedMetaReducer,
-  tagSharedMetaReducer,
-  taskBatchUpdateMetaReducer,
-  taskSharedCrudMetaReducer,
-  taskSharedLifecycleMetaReducer,
-  taskSharedSchedulingMetaReducer,
-} from './app/root-store/meta/task-shared-meta-reducers';
+import { META_REDUCERS } from './app/root-store/meta/meta-reducer-registry';
+import { setOperationCaptureService } from './app/root-store/meta/task-shared-meta-reducers';
+import { OperationCaptureService } from './app/op-log/capture/operation-capture.service';
+import { ImmediateUploadService } from './app/op-log/sync/immediate-upload.service';
 import { EffectsModule } from '@ngrx/effects';
 import { StoreDevtoolsModule } from '@ngrx/store-devtools';
 import { ReactiveFormsModule } from '@angular/forms';
@@ -93,8 +88,8 @@ bootstrapApplication(AppComponent, {
           provide: MARKED_OPTIONS,
           useFactory: markedOptionsFactory,
         },
-        // Don't sanitize in Electron - we trust local file:// URLs
-        // In web, ngx-markdown will use default browser sanitization
+        // Don't sanitize in Electron - we trust local file:// URLs for clipboard images
+        // In web, use HTML sanitization for security
         sanitize: IS_ELECTRON ? SecurityContext.NONE : SecurityContext.HTML,
       }),
       MaterialCssVarsModule.forRoot(),
@@ -105,18 +100,9 @@ bootstrapApplication(AppComponent, {
       // External
       BrowserModule,
       // NOTE: both need to be present to use forFeature stores
+      // Meta-reducers are defined in meta-reducer-registry.ts with detailed phase documentation
       StoreModule.forRoot(undefined, {
-        metaReducers: [
-          undoTaskDeleteMetaReducer,
-          taskSharedCrudMetaReducer,
-          taskBatchUpdateMetaReducer,
-          taskSharedLifecycleMetaReducer,
-          taskSharedSchedulingMetaReducer,
-          projectSharedMetaReducer,
-          tagSharedMetaReducer,
-          plannerSharedMetaReducer,
-          actionLoggerReducer,
-        ],
+        metaReducers: META_REDUCERS,
         ...(environment.production
           ? {
               runtimeChecks: {
@@ -138,13 +124,17 @@ bootstrapApplication(AppComponent, {
       }),
       EffectsModule.forRoot([]),
       !environment.production && !environment.stage
-        ? StoreDevtoolsModule.instrument()
+        ? StoreDevtoolsModule.instrument({
+            maxAge: 15,
+            logOnly: environment.production,
+            actionsBlocklist: ['[TimeTracking] Add time spent'],
+          })
         : [],
       ReactiveFormsModule,
       ServiceWorkerModule.register('ngsw-worker.js', {
         enabled:
           !IS_ELECTRON &&
-          !IS_ANDROID_WEB_VIEW &&
+          !IS_NATIVE_PLATFORM &&
           (environment.production || environment.stage),
         // Register the ServiceWorker as soon as the application is stable
         // or after 30 seconds (whichever comes first).
@@ -182,15 +172,56 @@ bootstrapApplication(AppComponent, {
     provideRouter(APP_ROUTES, withHashLocation(), withPreloading(PreloadAllModules)),
     PLUGIN_INITIALIZER_PROVIDER,
     provideZonelessChangeDetection(),
+    // Initialize operation capture service for synchronous state change capture
+    // This must run before any persistent actions are dispatched
+    {
+      provide: APP_INITIALIZER,
+      useFactory: (captureService: OperationCaptureService) => {
+        return () => {
+          setOperationCaptureService(captureService);
+        };
+      },
+      deps: [OperationCaptureService],
+      multi: true,
+    },
+    // Initialize immediate upload service for real-time sync to SuperSync
+    {
+      provide: APP_INITIALIZER,
+      useFactory: (immediateUploadService: ImmediateUploadService) => {
+        return () => {
+          immediateUploadService.initialize();
+        };
+      },
+      deps: [ImmediateUploadService],
+      multi: true,
+    },
   ],
 }).then(() => {
   // Initialize touch fix for Material menus
   initializeMatMenuTouchFix();
 
-  // Register all supported locales
-  Object.keys(LocalesImports).forEach((locale) => {
-    registerLocaleData(LocalesImports[locale], locale);
-  });
+  // Register default locale immediately for fast startup
+  registerLocaleData(LocalesImports[DEFAULT_LANGUAGE], DEFAULT_LANGUAGE);
+
+  // Defer other locales to idle time for better initial load performance
+  if (typeof requestIdleCallback === 'function') {
+    requestIdleCallback(() => {
+      Object.keys(LocalesImports).forEach((locale) => {
+        if (locale !== DEFAULT_LANGUAGE) {
+          registerLocaleData(LocalesImports[locale], locale);
+        }
+      });
+    });
+  } else {
+    // Fallback for browsers without requestIdleCallback
+    setTimeout(() => {
+      Object.keys(LocalesImports).forEach((locale) => {
+        if (locale !== DEFAULT_LANGUAGE) {
+          registerLocaleData(LocalesImports[locale], locale);
+        }
+      });
+    }, 0);
+  }
 
   // TODO make asset caching work for electron
 
@@ -198,14 +229,14 @@ bootstrapApplication(AppComponent, {
     'serviceWorker' in navigator &&
     (environment.production || environment.stage) &&
     !IS_ELECTRON &&
-    !IS_ANDROID_WEB_VIEW
+    !IS_NATIVE_PLATFORM
   ) {
     Log.log('Registering Service worker');
     return navigator.serviceWorker.register('ngsw-worker.js').catch((err: unknown) => {
       Log.log('Service Worker Registration Error');
       Log.err(err);
     });
-  } else if ('serviceWorker' in navigator && (IS_ELECTRON || IS_ANDROID_WEB_VIEW)) {
+  } else if ('serviceWorker' in navigator && (IS_ELECTRON || IS_NATIVE_PLATFORM)) {
     navigator.serviceWorker
       .getRegistrations()
       .then((registrations) => {
@@ -231,8 +262,10 @@ if (!(environment.production || environment.stage) && IS_ANDROID_WEB_VIEW) {
   }, 1000);
 }
 
-// CAPICATOR STUFF
+// CAPACITOR STUFF
 // ---------------
+
+// Android-specific: Handle back button
 if (IS_ANDROID_WEB_VIEW) {
   CapacitorApp.addListener('backButton', ({ canGoBack }) => {
     if (!canGoBack) {
@@ -241,7 +274,10 @@ if (IS_ANDROID_WEB_VIEW) {
       window.history.back();
     }
   });
+}
 
+// Android: Handle app state changes with background task for sync completion
+if (IS_ANDROID_WEB_VIEW) {
   CapacitorApp.addListener('appStateChange', async ({ isActive }) => {
     if (isActive) {
       return;
@@ -256,5 +292,25 @@ if (IS_ANDROID_WEB_VIEW) {
       Log.log('Time window for completing sync ended. Closing app!');
       BackgroundTask.finish({ taskId });
     });
+  });
+}
+
+// iOS: Handle app state changes (limited background time)
+if (IS_IOS_NATIVE) {
+  CapacitorApp.addListener('appStateChange', async ({ isActive }) => {
+    if (isActive) {
+      Log.log('iOS app became active');
+      return;
+    }
+    // iOS has limited background execution time (~30 seconds)
+    // Log state change but don't attempt long-running tasks
+    Log.log('iOS app going to background');
+  });
+
+  // Handle app URL open (for OAuth callbacks, deep links, etc.)
+  CapacitorApp.addListener('appUrlOpen', (event) => {
+    Log.log('iOS app URL open', event.url);
+    // Handle OAuth callbacks or deep links here
+    // The URL will be passed to the app when opened via custom scheme
   });
 }

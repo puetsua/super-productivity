@@ -2,6 +2,7 @@ import { createFeatureSelector, createSelector } from '@ngrx/store';
 import { LineChartData, Metric, MetricState } from '../metric.model';
 import { sortWorklogDates } from '../../../util/sortWorklogDates';
 import { METRIC_FEATURE_NAME, metricAdapter } from './metric.reducer';
+import { getDbDateStr } from '../../../util/get-db-date-str';
 import {
   selectAllSimpleCounters,
   selectSimpleCounterFeatureState,
@@ -56,7 +57,7 @@ export const selectLastNDaysMetrics = createSelector(
     const sorted = sortWorklogDates(ids);
 
     // Find the index of the end date (or use today if not specified)
-    const endDate = props.endDate || new Date().toISOString().split('T')[0];
+    const endDate = props.endDate || getDbDateStr();
     const endIndex = sorted.indexOf(endDate);
 
     // If end date not found, use the latest date
@@ -73,43 +74,6 @@ export const selectLastNDaysMetrics = createSelector(
 );
 
 // STATISTICS
-// ...
-export const selectProductivityHappinessLineChartDataComplete = createSelector(
-  selectMetricFeatureState,
-  (state: MetricState): LineChartData => {
-    const ids = state.ids as string[];
-    const sorted = sortWorklogDates(ids);
-    const v: LineChartData = {
-      labels: [],
-      datasets: [
-        { data: [], label: 'Mood' },
-        { data: [], label: 'Productivity' },
-      ],
-    };
-    sorted.forEach((id) => {
-      const metric = state.entities[id] as Metric;
-      v.labels?.push(metric.id);
-      v.datasets[0].data.push(metric.mood ? metric.mood - 5 : undefined);
-      v.datasets[1].data.push(metric.productivity ? metric.productivity - 5 : undefined);
-    });
-    return v;
-  },
-);
-
-export const selectProductivityHappinessLineChartData = createSelector(
-  selectProductivityHappinessLineChartDataComplete,
-  (chart: LineChartData, props: { howMany: number }): LineChartData => {
-    const f = -1 * props.howMany;
-    return {
-      labels: chart.labels?.slice(f),
-      datasets: [
-        { data: chart.datasets[0].data.slice(f), label: chart.datasets[0].label },
-        { data: chart.datasets[1].data.slice(f), label: chart.datasets[1].label },
-      ],
-    };
-  },
-);
-
 export const selectSimpleCounterClickCounterLineChartData = createSelector(
   selectSimpleCounterFeatureState,
   (simpleCounterState: SimpleCounterState, props: { howMany: number }): LineChartData => {

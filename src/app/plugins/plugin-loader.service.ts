@@ -1,5 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
+import { firstValueFrom } from 'rxjs';
 import { first } from 'rxjs/operators';
 import { PluginManifest } from './plugin-api.model';
 import { PluginCacheService } from './plugin-cache.service';
@@ -12,6 +13,7 @@ interface PluginAssets {
   code: string;
   indexHtml?: string;
   icon?: string;
+  translations?: Record<string, string>; // language code -> JSON string
 }
 
 /**
@@ -51,6 +53,13 @@ export class PluginLoaderService {
         throw new Error(`Invalid manifest: ${validation.errors.join(', ')}`);
       }
 
+      // Log validation warnings
+      if (validation.warnings.length > 0) {
+        validation.warnings.forEach((warning) => {
+          PluginLog.warn(`[PluginLoader] ${manifest.id}: ${warning}`);
+        });
+      }
+
       // Load plugin code
       const codeUrl = `${pluginPath}/plugin.js`;
       const code = await this._http
@@ -86,7 +95,38 @@ export class PluginLoaderService {
         }
       }
 
-      return { manifest, code, indexHtml, icon };
+      // Load translation files if i18n is configured (in parallel)
+      let translations: Record<string, string> | undefined;
+      if (manifest.i18n?.languages && manifest.i18n.languages.length > 0) {
+        const translationPromises = manifest.i18n.languages.map(async (lang) => {
+          try {
+            const translationUrl = `${pluginPath}/i18n/${lang}.json`;
+            const translationContent = await firstValueFrom(
+              this._http.get(translationUrl, { responseType: 'text' }),
+            );
+            return [lang, translationContent] as const;
+          } catch (e) {
+            PluginLog.err(
+              `[PluginLoader] Failed to load ${lang} translations for ${manifest.id}:`,
+              e,
+            );
+            return [lang, null] as const;
+          }
+        });
+
+        const results = await Promise.all(translationPromises);
+        translations = {};
+        for (const [lang, content] of results) {
+          if (content) {
+            translations[lang] = content;
+            PluginLog.log(
+              `[PluginLoader] Loaded ${lang} translations for ${manifest.id}`,
+            );
+          }
+        }
+      }
+
+      return { manifest, code, indexHtml, icon, translations };
     } catch (error) {
       PluginLog.err(`Failed to load plugin from ${pluginPath}:`, error);
       throw error;
@@ -108,6 +148,7 @@ export class PluginLoaderService {
       code: cached.code,
       indexHtml: cached.indexHtml,
       icon: cached.icon,
+      translations: cached.translations,
     };
   }
 

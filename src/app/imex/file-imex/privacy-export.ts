@@ -24,6 +24,14 @@ const KEY_TO_REPLACE = [
   'filterUserName',
   'caldavUrl',
   'api_key',
+
+  // Issue #6020: Additional PII fields
+  'resourceName',
+  'name',
+  'description',
+  'location',
+  'calProviderId',
+  'summary',
 ];
 
 const maskString = (key: string, val: string, counter: number): string => {
@@ -37,7 +45,6 @@ const maskString = (key: string, val: string, counter: number): string => {
 const recurse = (obj: unknown): void => {
   if (typeof obj !== 'object' || obj === null) return;
 
-  // eslint-disable-next-line guard-for-in
   for (const key in obj) {
     if (Object.prototype.hasOwnProperty.call(obj, key)) {
       const val = (obj as Record<string, unknown>)[key];

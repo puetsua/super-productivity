@@ -15,7 +15,6 @@ import {
   selectMetricHasData,
   selectFocusSessionLineChartData,
   selectFocusSessionsByDay,
-  selectProductivityHappinessLineChartData,
   selectSimpleCounterClickCounterLineChartData,
   selectSimpleCounterStopWatchLineChartData,
   selectLastNDaysMetrics,
@@ -35,6 +34,7 @@ import {
 import { WorklogService } from '../worklog/worklog.service';
 import { Worklog } from '../worklog/worklog.model';
 import { getTimeSpentForDay } from '../worklog/util/get-time-spent-for-day.util';
+import { getDbDateStr } from '../../util/get-db-date-str';
 
 const MIN_FOCUS_SESSION_DURATION = 1000;
 
@@ -129,10 +129,6 @@ export class MetricService {
   }
 
   // STATISTICS
-  getProductivityHappinessChartData$(howMany: number = 60): Observable<LineChartData> {
-    return this._store$.select(selectProductivityHappinessLineChartData, { howMany });
-  }
-
   getSimpleClickCounterMetrics$(howMany: number = 60): Observable<LineChartData> {
     return this._store$.select(selectSimpleCounterClickCounterLineChartData, { howMany });
   }
@@ -300,7 +296,7 @@ export class MetricService {
     const end = endDate ? new Date(endDate) : new Date();
     // Go back by the number of days to get the end of the previous period
     end.setDate(end.getDate() - days);
-    return end.toISOString().split('T')[0];
+    return getDbDateStr(end);
   }
 
   private _calculateSustainabilityAverage(

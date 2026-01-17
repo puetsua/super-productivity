@@ -3,7 +3,11 @@ import { CommonModule } from '@angular/common';
 import { ReminderService } from './reminder.service';
 import { MatDialog } from '@angular/material/dialog';
 import { IS_ELECTRON } from '../../app.constants';
-import { IS_ANDROID_WEB_VIEW } from '../../util/is-android-web-view';
+import {
+  IS_NATIVE_PLATFORM,
+  IS_IOS_NATIVE,
+  IS_ANDROID_NATIVE,
+} from '../../util/is-native-platform';
 import {
   concatMap,
   delay,
@@ -14,24 +18,34 @@ import {
   map,
   take,
 } from 'rxjs/operators';
-import { Reminder } from './reminder.model';
 import { UiHelperService } from '../ui-helper/ui-helper.service';
 import { NotifyService } from '../../core/notify/notify.service';
 import { DialogViewTaskRemindersComponent } from '../tasks/dialog-view-task-reminders/dialog-view-task-reminders.component';
 import { throttle } from '../../util/decorators';
 import { SyncTriggerService } from '../../imex/sync/sync-trigger.service';
 import { LayoutService } from '../../core-ui/layout/layout.service';
-import { from, merge, of, timer, interval } from 'rxjs';
+import { merge, of, timer, interval } from 'rxjs';
 import { TaskService } from '../tasks/task.service';
 import { SnackService } from '../../core/snack/snack.service';
 import { T } from 'src/app/t.const';
+import { TaskWithReminderData } from '../tasks/task.model';
+import { Store } from '@ngrx/store';
+import { TaskSharedActions } from '../../root-store/meta/task-shared.actions';
 import { GlobalConfigService } from '../config/global-config.service';
+import { CapacitorReminderService } from '../../core/platform/capacitor-reminder.service';
+import {
+  NOTIFICATION_ACTION,
+  NotificationActionEvent,
+} from '../../core/platform/capacitor-notification.service';
+import { Log } from '../../core/log';
+
+const IOS_SNOOZE_MINUTES = 10;
+const MINUTES_TO_MILLISECONDS = 60 * 1000;
 
 @NgModule({
   declarations: [],
   imports: [CommonModule],
 })
-// TODO move to effect
 export class ReminderModule {
   private readonly _reminderService = inject(ReminderService);
   private readonly _matDialog = inject(MatDialog);
@@ -41,28 +55,32 @@ export class ReminderModule {
   private readonly _layoutService = inject(LayoutService);
   private readonly _taskService = inject(TaskService);
   private readonly _syncTriggerService = inject(SyncTriggerService);
+  private readonly _store = inject(Store);
   private readonly _globalConfigService = inject(GlobalConfigService);
+  private readonly _capacitorReminderService = inject(CapacitorReminderService);
 
   constructor() {
-    from(this._reminderService.init())
+    // Initialize reminder service (runs migration in background)
+    this._reminderService.init();
+
+    // Initialize iOS notification actions
+    this._initIOSNotificationActions();
+
+    this._syncTriggerService.afterInitialSyncDoneAndDataLoadedInitially$
       .pipe(
-        // we do this to wait for syncing and the like
-        concatMap(
-          () => this._syncTriggerService.afterInitialSyncDoneAndDataLoadedInitially$,
-        ),
         first(),
         delay(1000),
         concatMap(() =>
           this._reminderService.onRemindersActive$.pipe(
             // NOTE: we simply filter for open dialogs, as reminders are re-queried quite often
             filter(
-              (reminder) =>
+              (reminders) =>
                 this._matDialog.openDialogs.length === 0 &&
-                !!reminder &&
-                reminder.length > 0,
+                !!reminders &&
+                reminders.length > 0,
             ),
             // don't show reminders while add task bar is open
-            switchMap((reminders: Reminder[]) => {
+            switchMap((reminders: TaskWithReminderData[]) => {
               const isShowAddTaskBar = this._layoutService.isShowAddTaskBar();
               return isShowAddTaskBar
                 ? merge([
@@ -80,7 +98,7 @@ export class ReminderModule {
           ),
         ),
       )
-      .subscribe((reminders: Reminder[]) => {
+      .subscribe((reminders: TaskWithReminderData[]) => {
         if (IS_ELECTRON && this._globalConfigService.cfg()?.reminder?.isFocusWindow) {
           this._uiHelperService.focusApp();
         }
@@ -88,49 +106,57 @@ export class ReminderModule {
         this._showNotification(reminders);
 
         // Skip dialog on Android - native notifications handle reminders
-        if (IS_ANDROID_WEB_VIEW) {
+        // TODO: Native Android reminder notification actions (snooze/done buttons) currently
+        // work entirely in the background without notifying TypeScript. This means:
+        // 1. Snooze: Works correctly (native code reschedules the alarm)
+        // 2. Done: Works for dismissing the notification, but the reminder isn't removed from
+        //    app state. The reminder will be cancelled when the task is marked done in the app.
+        // To fully fix: Add onReminderDone$ subject to android-interface.ts and wire it up
+        // in the Kotlin ReminderBroadcastReceiver to call dismissReminderOnly action.
+        if (IS_ANDROID_NATIVE) {
           return;
         }
 
         const oldest = reminders[0];
-        if (oldest.type === 'TASK') {
-          if (this._taskService.currentTaskId() === oldest.relatedId) {
-            this._snackService.open({
-              type: 'CUSTOM',
-              msg: T.F.REMINDER.S_ACTIVE_TASK_DUE,
-              translateParams: {
-                title: oldest.title,
+        const taskId = oldest.id;
+
+        if (this._taskService.currentTaskId() === taskId) {
+          this._snackService.open({
+            type: 'CUSTOM',
+            msg: T.F.REMINDER.S_ACTIVE_TASK_DUE,
+            translateParams: {
+              title: oldest.title,
+            },
+            config: {
+              // show for longer
+              duration: 20000,
+            },
+            ico: 'alarm',
+          });
+          // Dismiss the reminder for the current task
+          this._store.dispatch(
+            TaskSharedActions.dismissReminderOnly({
+              id: taskId,
+            }),
+          );
+        } else {
+          this._matDialog
+            .open(DialogViewTaskRemindersComponent, {
+              autoFocus: false,
+              restoreFocus: true,
+              data: {
+                reminders,
               },
-              config: {
-                // show for longer
-                duration: 20000,
-              },
-              ico: 'alarm',
-            });
-            this._reminderService.removeReminder(oldest.id);
-            this._taskService.update(oldest.relatedId, {
-              reminderId: undefined,
-              dueWithTime: undefined,
-            });
-          } else {
-            this._matDialog
-              .open(DialogViewTaskRemindersComponent, {
-                autoFocus: false,
-                restoreFocus: true,
-                data: {
-                  reminders,
-                },
-              })
-              .afterClosed();
-          }
+            })
+            .afterClosed();
         }
       });
   }
 
   @throttle(60000)
-  private _showNotification(reminders: Reminder[]): void {
+  private _showNotification(reminders: TaskWithReminderData[]): void {
     // Skip on Android - we use native notifications with snooze button instead
-    if (IS_ANDROID_WEB_VIEW) {
+    if (IS_NATIVE_PLATFORM) {
       return;
     }
 
@@ -152,5 +178,72 @@ export class ReminderModule {
         requireInteraction: true,
       })
       .then();
+  }
+
+  /**
+   * Initialize iOS notification action handling.
+   * Registers action types and subscribes to action events.
+   */
+  private _initIOSNotificationActions(): void {
+    if (!IS_IOS_NATIVE) {
+      return;
+    }
+
+    // Initialize the Capacitor reminder service (registers action types)
+    this._capacitorReminderService.initialize().then(() => {
+      Log.log('ReminderModule: iOS notification actions initialized');
+    });
+
+    // Handle notification action events
+    this._capacitorReminderService.action$.subscribe((event: NotificationActionEvent) => {
+      this._handleIOSNotificationAction(event);
+    });
+  }
+
+  /**
+   * Handle iOS notification action (Snooze or Done).
+   */
+  private async _handleIOSNotificationAction(
+    event: NotificationActionEvent,
+  ): Promise<void> {
+    const taskId = event.extra?.['relatedId'] as string | undefined;
+    if (!taskId) {
+      Log.warn('ReminderModule: No task ID in notification action', event);
+      return;
+    }
+
+    Log.log('ReminderModule: Handling iOS notification action', {
+      actionId: event.actionId,
+      taskId,
+    });
+
+    if (event.actionId === NOTIFICATION_ACTION.SNOOZE) {
+      // Snooze: Reschedule the reminder for 10 minutes later
+      const task = await this._taskService.getByIdOnce$(taskId).toPromise();
+      if (task) {
+        const snoozeMs = IOS_SNOOZE_MINUTES * MINUTES_TO_MILLISECONDS;
+        const newRemindAt = Date.now() + snoozeMs;
+        this._store.dispatch(
+          TaskSharedActions.reScheduleTaskWithTime({
+            task,
+            remindAt: newRemindAt,
+            dueWithTime: task.dueWithTime ?? newRemindAt,
+            isMoveToBacklog: false,
+          }),
+        );
+        Log.log('ReminderModule: Task snoozed via iOS notification', {
+          taskId,
+          newRemindAt: new Date(newRemindAt).toISOString(),
+        });
+      }
+    } else if (event.actionId === NOTIFICATION_ACTION.DONE) {
+      // Done: Dismiss the reminder only (don't mark task as done)
+      this._store.dispatch(
+        TaskSharedActions.dismissReminderOnly({
+          id: taskId,
+        }),
+      );
+      Log.log('ReminderModule: Reminder dismissed via iOS notification', { taskId });
+    }
   }
 }

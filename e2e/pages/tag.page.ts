@@ -67,9 +67,9 @@ export class TagPage extends BasePage {
    * Assigns a tag to a task via context menu
    */
   async assignTagToTask(task: Locator, tagName: string): Promise<void> {
-    // Exit any edit mode by pressing Escape first
-    await this.page.keyboard.press('Escape');
-    await this.page.waitForTimeout(300);
+    // Ensure no overlays are blocking before we start
+    // Note: This also exits any edit mode
+    await this.ensureOverlaysClosed();
 
     // Right-click to open context menu
     await task.click({ button: 'right' });
@@ -113,17 +113,17 @@ export class TagPage extends BasePage {
       await tagNameInput.waitFor({ state: 'hidden', timeout: 3000 });
     }
 
-    // Wait for menu to close
-    await this.page.waitForTimeout(300);
+    // Wait for all overlays to close to ensure clean state for next operation
+    await this.ensureOverlaysClosed();
   }
 
   /**
    * Removes a tag from a task via context menu
    */
   async removeTagFromTask(task: Locator, tagName: string): Promise<void> {
-    // Exit any edit mode by pressing Escape first
-    await this.page.keyboard.press('Escape');
-    await this.page.waitForTimeout(300);
+    // Ensure no overlays are blocking before we start
+    // Note: This also exits any edit mode
+    await this.ensureOverlaysClosed();
 
     // Right-click to open context menu
     await task.click({ button: 'right' });
@@ -145,8 +145,8 @@ export class TagPage extends BasePage {
     await tagOption.waitFor({ state: 'visible', timeout: 3000 });
     await tagOption.click();
 
-    // Wait for menu to close
-    await this.page.waitForTimeout(300);
+    // Wait for all overlays to close to ensure clean state for next operation
+    await this.ensureOverlaysClosed();
   }
 
   /**
@@ -208,5 +208,57 @@ export class TagPage extends BasePage {
   async taskHasTag(task: Locator, tagName: string): Promise<boolean> {
     const tag = this.getTagOnTask(task, tagName);
     return tag.isVisible({ timeout: 2000 }).catch(() => false);
+  }
+
+  /**
+   * Deletes a tag via the sidebar context menu
+   */
+  async deleteTag(tagName: string): Promise<void> {
+    // Ensure any open menus/overlays are closed before starting
+    await this.ensureOverlaysClosed();
+
+    // Ensure Tags section is expanded
+    const tagsGroupBtn = this.tagsGroup
+      .locator('.g-multi-btn-wrapper nav-item button')
+      .first();
+    await tagsGroupBtn.waitFor({ state: 'visible', timeout: 5000 });
+
+    const isExpanded = await tagsGroupBtn.getAttribute('aria-expanded');
+    if (isExpanded !== 'true') {
+      await tagsGroupBtn.click();
+      await this.page.waitForTimeout(500);
+    }
+
+    // Find the tag in the sidebar
+    const tagTreeItem = this.tagsGroup
+      .locator('[role="treeitem"]')
+      .filter({ hasText: tagName })
+      .first();
+    await tagTreeItem.waitFor({ state: 'visible', timeout: 5000 });
+
+    // Right-click to open context menu
+    await tagTreeItem.click({ button: 'right' });
+
+    // Click delete option - look for "Delete Tag" text
+    const deleteBtn = this.page
+      .locator('.mat-mdc-menu-content button')
+      .filter({ hasText: /delete/i })
+      .first();
+    await deleteBtn.waitFor({ state: 'visible', timeout: 3000 });
+    await deleteBtn.click();
+
+    // Handle confirmation dialog
+    const confirmDialog = this.page.locator('dialog-confirm');
+    await confirmDialog.waitFor({ state: 'visible', timeout: 3000 });
+    // Click "Ok" button to confirm deletion
+    const confirmBtn = confirmDialog.locator('button').filter({ hasText: /ok/i });
+    await confirmBtn.click();
+    await confirmDialog.waitFor({ state: 'hidden', timeout: 3000 });
+
+    // Wait for tag to be removed from sidebar
+    await tagTreeItem.waitFor({ state: 'hidden', timeout: 5000 });
+
+    // Wait for all overlays to close to ensure clean state for next operation
+    await this.ensureOverlaysClosed();
   }
 }

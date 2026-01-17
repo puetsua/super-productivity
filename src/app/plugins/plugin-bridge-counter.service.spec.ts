@@ -18,10 +18,11 @@ import { WorkContextService } from '../features/work-context/work-context.servic
 import { PluginHooksService } from './plugin-hooks';
 import { PluginUserPersistenceService } from './plugin-user-persistence.service';
 import { PluginConfigService } from './plugin-config.service';
-import { TaskArchiveService } from '../features/time-tracking/task-archive.service';
+import { TaskArchiveService } from '../features/archive/task-archive.service';
 import { TranslateService } from '@ngx-translate/core';
 import { SyncWrapperService } from '../imex/sync/sync-wrapper.service';
 import { Injector } from '@angular/core';
+import { getDbDateStr } from '../util/get-db-date-str';
 
 /* eslint-disable @typescript-eslint/naming-convention */
 describe('PluginBridgeService.setCounter()', () => {
@@ -40,7 +41,7 @@ describe('PluginBridgeService.setCounter()', () => {
     countOnDay,
   });
 
-  const getToday = (): string => new Date().toISOString().split('T')[0];
+  const getToday = (): string => getDbDateStr();
 
   beforeEach(() => {
     const storeSpy = jasmine.createSpyObj('Store', ['select', 'dispatch']);
@@ -149,7 +150,7 @@ describe('PluginBridgeService.setCounter()', () => {
 
       expect(store.dispatch).toHaveBeenCalled();
       const call = store.dispatch.calls.mostRecent();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
       const action = call.args[0] as any;
       expect(action.type).toBe('[SimpleCounter] Upsert SimpleCounter');
       expect(action.simpleCounter.id).toBe('new-counter');
@@ -166,7 +167,7 @@ describe('PluginBridgeService.setCounter()', () => {
 
       expect(store.dispatch).toHaveBeenCalled();
       const call = store.dispatch.calls.mostRecent();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
       const action = call.args[0] as any;
       expect(action.type).toBe('[SimpleCounter] Upsert SimpleCounter');
       expect(action.simpleCounter.id).toBe('zero-counter');
@@ -177,7 +178,7 @@ describe('PluginBridgeService.setCounter()', () => {
       await service.setCounter('full-counter', 5);
 
       const call = store.dispatch.calls.mostRecent();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
       const action = call.args[0] as any;
       const counter = action.simpleCounter;
 
@@ -201,7 +202,7 @@ describe('PluginBridgeService.setCounter()', () => {
 
       expect(store.dispatch).toHaveBeenCalled();
       const call = store.dispatch.calls.mostRecent();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
       const action = call.args[0] as any;
       expect(action.type).toBe('[SimpleCounter] Update SimpleCounter');
       expect(action.simpleCounter.id).toBe('existing-counter');
@@ -223,7 +224,7 @@ describe('PluginBridgeService.setCounter()', () => {
 
       expect(store.dispatch).toHaveBeenCalled();
       const call = store.dispatch.calls.mostRecent();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
       const action = call.args[0] as any;
       const countOnDay = action.simpleCounter.changes.countOnDay;
       expect(countOnDay['2024-01-01']).toBe(5);
@@ -241,7 +242,7 @@ describe('PluginBridgeService.setCounter()', () => {
 
       expect(store.dispatch).toHaveBeenCalled();
       const call = store.dispatch.calls.mostRecent();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
       const action = call.args[0] as any;
       expect(action.simpleCounter.changes.countOnDay[today]).toBe(100);
     });
@@ -253,7 +254,7 @@ describe('PluginBridgeService.setCounter()', () => {
       await service.setCounter('check-action', 1);
 
       const call = store.dispatch.calls.mostRecent();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
       const action = call.args[0] as any;
       expect(action.type).toBe('[SimpleCounter] Update SimpleCounter');
     });

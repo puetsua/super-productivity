@@ -1,8 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { MatDialog } from '@angular/material/dialog';
-import { Capacitor } from '@capacitor/core';
 import { Directory, Filesystem } from '@capacitor/filesystem';
-import { IS_ANDROID_WEB_VIEW } from '../../util/is-android-web-view';
+import { IS_NATIVE_PLATFORM } from '../../util/is-native-platform';
 import { SnackService } from '../snack/snack.service';
 import {
   ShareCanvasImageParams,
@@ -265,9 +264,8 @@ export class ShareService {
   private async _showShareDialog(payload: SharePayload): Promise<ShareResult> {
     try {
       // Import dialog component dynamically to avoid circular dependencies
-      const { DialogShareComponent } = await import(
-        './dialog-share/dialog-share.component'
-      );
+      const { DialogShareComponent } =
+        await import('./dialog-share/dialog-share.component');
 
       const dialogRef = this._matDialog.open(DialogShareComponent, {
         width: '500px',
@@ -539,8 +537,9 @@ export class ShareService {
         usedNative: true,
         target: 'native',
       };
-    } catch (error: any) {
-      if (error?.name === 'AbortError' || /Share canceled/i.test(error?.message)) {
+    } catch (error: unknown) {
+      const err = error as { name?: string; message?: string };
+      if (err?.name === 'AbortError' || /Share canceled/i.test(err?.message ?? '')) {
         return {
           success: false,
           error: 'Share cancelled',
@@ -601,8 +600,9 @@ export class ShareService {
           target: 'native',
         };
       }
-    } catch (error: any) {
-      if (error?.name === 'AbortError') {
+    } catch (error: unknown) {
+      const err = error as { name?: string };
+      if (err?.name === 'AbortError') {
         return {
           success: false,
           error: 'Share cancelled',
@@ -628,7 +628,7 @@ export class ShareService {
     filename: string;
     dataUrl: string;
   }): Promise<ShareResult> {
-    if (base64 && (Capacitor.isNativePlatform() || IS_ANDROID_WEB_VIEW)) {
+    if (base64 && IS_NATIVE_PLATFORM) {
       const sanitizedName = ShareFileUtil.sanitizeFilename(filename);
       const relativePath = `shared-images/${Date.now()}-${sanitizedName}`;
       try {

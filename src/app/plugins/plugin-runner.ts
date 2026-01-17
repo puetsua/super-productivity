@@ -3,6 +3,7 @@ import { PluginManifest, PluginBaseCfg, PluginInstance } from './plugin-api.mode
 import { PluginAPI } from './plugin-api';
 import { PluginBridgeService } from './plugin-bridge.service';
 import { PluginSecurityService } from './plugin-security';
+import { PluginI18nService } from './plugin-i18n.service';
 import { SnackService } from '../core/snack/snack.service';
 import { PluginCleanupService } from './plugin-cleanup.service';
 import { PluginLog } from '../core/log';
@@ -17,6 +18,7 @@ import { PluginLog } from '../core/log';
 export class PluginRunner {
   private _pluginBridge = inject(PluginBridgeService);
   private _securityService = inject(PluginSecurityService);
+  private _pluginI18nService = inject(PluginI18nService);
   private _snackService = inject(SnackService);
   private _cleanupService = inject(PluginCleanupService);
 
@@ -34,7 +36,13 @@ export class PluginRunner {
   ): Promise<PluginInstance> {
     try {
       // Create plugin API
-      const pluginAPI = new PluginAPI(baseCfg, manifest.id, this._pluginBridge, manifest);
+      const pluginAPI = new PluginAPI(
+        baseCfg,
+        manifest.id,
+        this._pluginBridge,
+        this._pluginI18nService,
+        manifest,
+      );
 
       // executeNodeScript is now automatically bound if permitted via createBoundMethods
 
@@ -124,8 +132,10 @@ export class PluginRunner {
 
     const executionPromise = new Promise<void>((resolve, reject) => {
       try {
-        // Simple function execution with PluginAPI in scope
+        // Simple function execution with plugin API in scope
+        // Provide both 'plugin' and 'PluginAPI' for backward compatibility
         const pluginFunction = new Function(
+          'plugin',
           'PluginAPI',
           `
           'use strict';
@@ -137,8 +147,8 @@ export class PluginRunner {
         `,
         );
 
-        // Execute with API
-        pluginFunction(api);
+        // Execute with API (pass same object for both parameter names)
+        pluginFunction(api, api);
         resolve();
       } catch (error) {
         reject(error);

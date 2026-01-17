@@ -22,7 +22,6 @@ const _invoke: (channel: IPCEventValue, ...args: unknown[]) => Promise<unknown> 
   ...args
 ) => ipcRenderer.invoke(channel, ...args);
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const ea: ElectronAPI = {
   on: (
     channel: string,
@@ -51,6 +50,8 @@ const ea: ElectronAPI = {
       dataStr: string | undefined;
     }>,
   fileSyncRemove: (filePath) => _invoke('FILE_SYNC_REMOVE', filePath) as Promise<void>,
+  fileSyncListFiles: ({ dirPath }) =>
+    _invoke('FILE_SYNC_LIST_FILES', dirPath) as Promise<string[] | Error>,
   checkDirExists: (dirPath) =>
     _invoke('CHECK_DIR_EXISTS', dirPath) as Promise<true | Error>,
 

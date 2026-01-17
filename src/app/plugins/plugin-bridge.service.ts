@@ -39,7 +39,7 @@ import { first, take, map } from 'rxjs/operators';
 import { selectTaskByIdWithSubTaskData } from '../features/tasks/store/task.selectors';
 import { PluginUserPersistenceService } from './plugin-user-persistence.service';
 import { PluginConfigService } from './plugin-config.service';
-import { TaskArchiveService } from '../features/time-tracking/task-archive.service';
+import { TaskArchiveService } from '../features/archive/task-archive.service';
 import { Router } from '@angular/router';
 import { PluginDialogComponent } from './ui/plugin-dialog/plugin-dialog.component';
 import { IS_ELECTRON } from '../app.constants';
@@ -51,6 +51,7 @@ import { Log, PluginLog } from '../core/log';
 import { TaskCopy } from '../features/tasks/task.model';
 import { ProjectCopy } from '../features/project/project.model';
 import { TagCopy } from '../features/tag/tag.model';
+import { MAX_BATCH_OPERATIONS_SIZE } from '../op-log/core/operation-log.const';
 
 // New imports for simple counters
 import { selectAllSimpleCounters } from '../features/simple-counter/store/simple-counter.reducer';
@@ -65,6 +66,7 @@ import {
   deleteSimpleCounter,
   toggleSimpleCounterCounter,
 } from '../features/simple-counter/store/simple-counter.actions';
+import { getDbDateStr } from '../util/get-db-date-str';
 
 /**
  * PluginBridge acts as an intermediary layer between plugins and the main application services.
@@ -625,12 +627,13 @@ export class PluginBridgeService implements OnDestroy {
   /**
    * Batch update tasks for a project
    * Only generate IDs here - let the reducer handle all validation
+   * Large batches are automatically chunked to prevent oversized operation payloads
    */
   async batchUpdateForProject(request: BatchUpdateRequest): Promise<BatchUpdateResult> {
     typia.assert<BatchUpdateRequest>(request);
 
-    // Generate IDs for all create operations
-    // We need to do this here so we can return them to the plugin immediately
+    // Generate IDs for all create operations upfront
+    // We need consistent IDs across all chunks
     const createdTaskIds: { [tempId: string]: string } = {};
     request.operations.forEach((op) => {
       if (op.type === 'create') {
@@ -639,14 +642,27 @@ export class PluginBridgeService implements OnDestroy {
       }
     });
 
-    // Dispatch the batch update action - let the reducer handle all validation
-    this._store.dispatch(
-      TaskSharedActions.batchUpdateForProject({
-        projectId: request.projectId,
-        operations: request.operations,
-        createdTaskIds,
-      }),
-    );
+    // Chunk large operations to prevent oversized payloads
+    const chunks = this._chunkOperations(request.operations);
+
+    if (chunks.length > 1) {
+      PluginLog.log('PluginBridge: Chunking large batch operation', {
+        totalOperations: request.operations.length,
+        chunks: chunks.length,
+        chunkSize: MAX_BATCH_OPERATIONS_SIZE,
+      });
+    }
+
+    // Dispatch each chunk as a separate action
+    chunks.forEach((chunk) => {
+      this._store.dispatch(
+        TaskSharedActions.batchUpdateForProject({
+          projectId: request.projectId,
+          operations: chunk,
+          createdTaskIds, // Same IDs mapping for all chunks
+        }),
+      );
+    });
 
     // Return the generated IDs immediately
     // The reducer will validate everything including project existence
@@ -657,18 +673,41 @@ export class PluginBridgeService implements OnDestroy {
   }
 
   /**
+   * Chunks operations array into smaller batches to prevent oversized payloads
+   */
+  private _chunkOperations<T>(operations: T[]): T[][] {
+    if (operations.length <= MAX_BATCH_OPERATIONS_SIZE) {
+      return [operations];
+    }
+
+    const chunks: T[][] = [];
+    for (let i = 0; i < operations.length; i += MAX_BATCH_OPERATIONS_SIZE) {
+      chunks.push(operations.slice(i, i + MAX_BATCH_OPERATIONS_SIZE));
+    }
+    return chunks;
+  }
+
+  /**
    * Internal method to persist plugin data
+   * Includes size and rate limit validation
    */
   private async _persistDataSynced(pluginId: string, dataStr: string): Promise<void> {
     typia.assert<string>(dataStr);
 
     try {
-      await this._pluginUserPersistenceService.persistPluginUserData(pluginId, dataStr);
+      this._pluginUserPersistenceService.persistPluginUserData(pluginId, dataStr);
       console.log('PluginBridge: Plugin data persisted successfully', {
         pluginId,
+        dataSize: new Blob([dataStr]).size,
       });
     } catch (error) {
+      // Log the specific error (rate limit or size exceeded)
       PluginLog.err('PluginBridge: Failed to persist plugin data:', error);
+
+      // Rethrow with the original error message for better debugging
+      if (error instanceof Error) {
+        throw error;
+      }
       throw new Error(this._translateService.instant(T.PLUGINS.UNABLE_TO_PERSIST_DATA));
     }
   }
@@ -1118,27 +1157,41 @@ export class PluginBridgeService implements OnDestroy {
   private _isWindowFocused = true;
   private _windowFocusHandlers = new Map<string, (isFocused: boolean) => void>();
 
+  // Named listener methods for proper cleanup
+  private _onWindowFocus = (): void => {
+    this._isWindowFocused = true;
+    this._notifyFocusHandlers(true);
+  };
+
+  private _onWindowBlur = (): void => {
+    this._isWindowFocused = false;
+    this._notifyFocusHandlers(false);
+  };
+
+  private _onVisibilityChange = (): void => {
+    const isFocused = !document.hidden;
+    this._isWindowFocused = isFocused;
+    this._notifyFocusHandlers(isFocused);
+  };
+
   /**
    * Initialize window focus tracking
    */
   private _initWindowFocusTracking(): void {
     // Track window focus/blur events
-    window.addEventListener('focus', () => {
-      this._isWindowFocused = true;
-      this._notifyFocusHandlers(true);
-    });
-
-    window.addEventListener('blur', () => {
-      this._isWindowFocused = false;
-      this._notifyFocusHandlers(false);
-    });
-
+    window.addEventListener('focus', this._onWindowFocus);
+    window.addEventListener('blur', this._onWindowBlur);
     // Also track document visibility changes
-    document.addEventListener('visibilitychange', () => {
-      const isFocused = !document.hidden;
-      this._isWindowFocused = isFocused;
-      this._notifyFocusHandlers(isFocused);
-    });
+    document.addEventListener('visibilitychange', this._onVisibilityChange);
+  }
+
+  /**
+   * Clean up window focus tracking listeners
+   */
+  private _cleanupWindowFocusTracking(): void {
+    window.removeEventListener('focus', this._onWindowFocus);
+    window.removeEventListener('blur', this._onWindowBlur);
+    document.removeEventListener('visibilitychange', this._onVisibilityChange);
   }
 
   /**
@@ -1175,7 +1228,7 @@ export class PluginBridgeService implements OnDestroy {
    * Gets all simple counters as { [key: string]: number }.
    */
   async getAllCounters(): Promise<{ [key: string]: number }> {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getDbDateStr();
     const countersArray = await this._store
       .select(selectAllSimpleCounters)
       .pipe(
@@ -1215,7 +1268,7 @@ export class PluginBridgeService implements OnDestroy {
     if (typeof value !== 'number' || !isFinite(value) || value < 0) {
       throw new Error('Invalid counter value: must be a non-negative number');
     }
-    const today = new Date().toISOString().split('T')[0];
+    const today = getDbDateStr();
 
     // Check if counter already exists
     const existingCounter = await this.getSimpleCounter(id);
@@ -1340,7 +1393,7 @@ export class PluginBridgeService implements OnDestroy {
    * @param value The numeric value.
    */
   async setSimpleCounterToday(id: string, value: number): Promise<void> {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getDbDateStr();
     return this.setSimpleCounterDate(id, today, value);
   }
 
@@ -1374,6 +1427,7 @@ export class PluginBridgeService implements OnDestroy {
    */
   ngOnDestroy(): void {
     PluginLog.log('PluginBridgeService: Cleaning up resources');
+    this._cleanupWindowFocusTracking();
     // Note: Signals don't need explicit cleanup like BehaviorSubjects
     PluginLog.log('PluginBridgeService: Cleanup complete');
   }

@@ -1,4 +1,5 @@
 import {
+  AfterViewInit,
   ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
@@ -49,7 +50,7 @@ const ALL_VIEW_MODES: ['SPLIT', 'PARSED', 'TEXT_ONLY'] = ['SPLIT', 'PARSED', 'TE
     AsyncPipe,
   ],
 })
-export class DialogFullscreenMarkdownComponent implements OnInit {
+export class DialogFullscreenMarkdownComponent implements OnInit, AfterViewInit {
   private readonly _destroyRef = inject(DestroyRef);
   private readonly _clipboardImageService = inject(ClipboardImageService);
   private readonly _cdr = inject(ChangeDetectorRef);
@@ -117,6 +118,11 @@ export class DialogFullscreenMarkdownComponent implements OnInit {
     this.resolvedContent.set(this.data?.content || '');
     // Then start async resolution
     this._updateResolvedContent(this.data?.content || '');
+  }
+
+  ngAfterViewInit(): void {
+    // Focus textarea if present (not in PARSED view mode)
+    this.textareaEl()?.nativeElement?.focus();
   }
 
   keydownHandler(ev: KeyboardEvent): void {
