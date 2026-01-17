@@ -1,16 +1,35 @@
 import {
   AfterViewInit,
+  ChangeDetectionStrategy,
   ChangeDetectorRef,
+  Component,
   DestroyRef,
+  effect,
   ElementRef,
   inject,
+  OnInit,
   output,
   signal,
   viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { FormsModule } from '@angular/forms';
 import { MAT_DIALOG_DATA, MatDialogRef } from '@angular/material/dialog';
-import { MarkdownComponent } from 'ngx-markdown';
+import { MatButton } from '@angular/material/button';
+import { MatButtonToggle, MatButtonToggleGroup } from '@angular/material/button-toggle';
+import { MatIcon } from '@angular/material/icon';
+import { MatIconButton } from '@angular/material/button';
+import { MatTooltip } from '@angular/material/tooltip';
+import {
+  MarkdownComponent,
+  provideMarkdown,
+  MARKED_OPTIONS,
+  SANITIZE,
+} from 'ngx-markdown';
+import { SecurityContext } from '@angular/core';
+import { markedOptionsFactory } from '../marked-options-factory';
+import { IS_ELECTRON } from '../../app.constants';
+import { TranslatePipe } from '@ngx-translate/core';
 import { Subject } from 'rxjs';
 import { debounceTime } from 'rxjs/operators';
 import { LS } from '../../core/persistence/storage-keys.const';
@@ -18,16 +37,48 @@ import { T } from '../../t.const';
 import { isSmallScreen } from '../../util/is-small-screen';
 import * as MarkdownToolbar from '../inline-markdown/markdown-toolbar.util';
 import { ClipboardImageService } from '../../core/clipboard-image/clipboard-image.service';
+import { TaskAttachmentService } from '../../features/tasks/task-attachment/task-attachment.service';
 
 type ViewMode = 'SPLIT' | 'PARSED' | 'TEXT_ONLY';
 const ALL_VIEW_MODES: ['SPLIT', 'PARSED', 'TEXT_ONLY'] = ['SPLIT', 'PARSED', 'TEXT_ONLY'];
 
-export class DialogFullscreenMarkdownComponent implements AfterViewInit {
+@Component({
+  selector: 'dialog-fullscreen-markdown',
+  templateUrl: './dialog-fullscreen-markdown.component.html',
+  styleUrls: ['./dialog-fullscreen-markdown.component.scss'],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  standalone: true,
+  imports: [
+    FormsModule,
+    MarkdownComponent,
+    MatButton,
+    MatButtonToggle,
+    MatButtonToggleGroup,
+    MatIcon,
+    MatIconButton,
+    MatTooltip,
+    TranslatePipe,
+  ],
+  providers: [
+    provideMarkdown({
+      markedOptions: {
+        provide: MARKED_OPTIONS,
+        useFactory: markedOptionsFactory,
+      },
+      sanitize: {
+        provide: SANITIZE,
+        useValue: IS_ELECTRON ? SecurityContext.NONE : SecurityContext.HTML,
+      },
+    }),
+  ],
+})
+export class DialogFullscreenMarkdownComponent implements OnInit, AfterViewInit {
   private readonly _destroyRef = inject(DestroyRef);
   private readonly _clipboardImageService = inject(ClipboardImageService);
+  private readonly _taskAttachmentService = inject(TaskAttachmentService);
   private readonly _cdr = inject(ChangeDetectorRef);
   _matDialogRef = inject<MatDialogRef<DialogFullscreenMarkdownComponent>>(MatDialogRef);
-  data: { content: string } = inject(MAT_DIALOG_DATA) || { content: '' };
+  data: { content: string; taskId?: string } = inject(MAT_DIALOG_DATA) || { content: '' };
 
   T: typeof T = T;
   viewMode: ViewMode = isSmallScreen() ? 'TEXT_ONLY' : 'SPLIT';
@@ -42,8 +93,13 @@ export class DialogFullscreenMarkdownComponent implements AfterViewInit {
    * Initialized in ngOnInit with raw content, updated asynchronously when images resolve.
    */
   resolvedContent = signal<string>('');
+  // Plain property for markdown component compatibility
+  resolvedContentData: string | undefined;
 
   constructor() {
+    // Set initial content synchronously for immediate rendering
+    this.resolvedContentData = this.data.content || '';
+
     const lastViewMode = localStorage.getItem(LS.LAST_FULLSCREEN_EDIT_VIEW_MODE);
     if (
       ALL_VIEW_MODES.includes(lastViewMode as ViewMode) &&
@@ -58,10 +114,11 @@ export class DialogFullscreenMarkdownComponent implements AfterViewInit {
       }
     }
 
-    // Initialize resolved content after this.data might have been modified by subclass
-    this.resolvedContent.set(this.data?.content || '');
-    // Then start async resolution
-    this._updateResolvedContent(this.data?.content || '');
+    // Sync signal to plain property for markdown component
+    effect(() => {
+      this.resolvedContentData = this.resolvedContent();
+      this._cdr.markForCheck();
+    });
 
     // Auto-save with debounce
     this._contentChanges$
@@ -89,6 +146,14 @@ export class DialogFullscreenMarkdownComponent implements AfterViewInit {
         }
       });
   }
+
+  async ngOnInit(): Promise<void> {
+    // Update resolved content asynchronously for image processing
+    if (this.data.content) {
+      await this._updateResolvedContent(this.data.content);
+    }
+  }
+
   ngAfterViewInit(): void {
     // Focus textarea if present (not in PARSED view mode)
     this.textareaEl()?.nativeElement?.focus();
@@ -143,6 +208,16 @@ export class DialogFullscreenMarkdownComponent implements AfterViewInit {
               result.markdownText,
             );
             this._contentChanges$.next(this.data.content);
+
+            // Add image to task attachments if taskId is provided
+            if (this.data.taskId && result.imageUrl) {
+              this._taskAttachmentService.addAttachment(this.data.taskId, {
+                id: null,
+                type: 'IMG',
+                path: result.imageUrl,
+                title: 'Pasted image',
+              });
+            }
 
             // Move cursor after the inserted text
             const newCursorPos = selectionStart + result.markdownText.length;
@@ -215,7 +290,21 @@ export class DialogFullscreenMarkdownComponent implements AfterViewInit {
   private async _updateResolvedContent(content: string): Promise<void> {
     const resolved = await this._clipboardImageService.resolveMarkdownImages(content);
     this.resolvedContent.set(resolved);
-    this._cdr.markForCheck();
+
+    // Manually render markdown using MarkdownComponent's render method
+    const markdownComponent = this.previewEl();
+    if (markdownComponent && resolved) {
+      try {
+        await markdownComponent.render(resolved);
+        // Force change detection after async render completes
+        this._cdr.detectChanges();
+      } catch (error) {
+        console.error('[DialogFullscreenMarkdown] Error rendering markdown:', error);
+        this._cdr.markForCheck();
+      }
+    } else {
+      this._cdr.markForCheck();
+    }
   }
 
   // =========================================================================

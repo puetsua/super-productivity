@@ -166,13 +166,13 @@
     </div>
   }
   @if (viewMode === 'PARSED' || viewMode === 'SPLIT') {
-    <div
+    <markdown
       #previewEl
       (click)="clickPreview($event)"
-      markdown
-      [data]="resolvedContent()"
+      [data]="resolvedContentData"
+      [disableSanitizer]="true"
       class="markdown-preview markdown"
-    ></div>
+    ></markdown>
   }
 </div>
 

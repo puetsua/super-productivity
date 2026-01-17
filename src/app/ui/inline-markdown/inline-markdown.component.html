@@ -2,6 +2,7 @@
   #wrapperEl
   [class.isHideOverflow]="isHideOverflow()"
   class="markdown-wrapper"
+  spResolveClipboardImages
 >
   @if (isShowEdit() || isTurnOffMarkdownParsing()) {
     <textarea
@@ -22,15 +23,15 @@
 
   <!--  (focus)="clickOrFocusPreview($event, true)"-->
   @if (!isTurnOffMarkdownParsing()) {
-    <div
+    <markdown
       #previewEl
       (click)="clickPreview($event)"
-      [data]="resolvedModel()"
-      [hidden]="isShowEdit()"
+      [data]="resolvedMarkdownData"
+      [disableSanitizer]="true"
+      [class.preview-while-editing]="isShowEdit()"
       class="mat-body-2 markdown-parsed markdown"
-      markdown
       tabindex="0"
-    ></div>
+    ></markdown>
   }
 </div>
 

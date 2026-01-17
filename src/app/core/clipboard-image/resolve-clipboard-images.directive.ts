@@ -72,7 +72,10 @@ export class ResolveClipboardImagesDirective implements OnInit, OnDestroy, OnCha
 
     try {
       const element = this._elementRef.nativeElement as HTMLElement;
-      const images = element.querySelectorAll<HTMLImageElement>('img.indexeddb-image');
+      // Find images with either the indexeddb-image class OR indexeddb:// URLs in src
+      const images = element.querySelectorAll<HTMLImageElement>(
+        'img.indexeddb-image, img[src^="indexeddb://"]',
+      );
 
       for (const img of Array.from(images)) {
         // Read the indexeddb:// URL directly from src attribute

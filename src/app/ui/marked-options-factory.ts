@@ -70,23 +70,6 @@ export const markedOptionsFactory = (): MarkedOptions => {
   renderer.link = ({ href, title, text }) =>
     `<a target="_blank" href="${href}" title="${title || ''}">${text}</a>`;
 
-  renderer.paragraph = ({ text }) => {
-    const split = text.split('\n');
-    return split.reduce((acc, p, i) => {
-      const result = /h(\d)\./.exec(p);
-      if (result !== null) {
-        const h = `h${result[1]}`;
-        return acc + `<${h}>${p.replace(result[0], '')}</${h}>`;
-      }
-
-      if (split.length === 1) {
-        return `<p>` + p + `</p>`;
-      }
-
-      return acc ? (split.length - 1 === i ? acc + p + `</p>` : acc + p) : `<p>` + p;
-    }, '');
-  };
-
   // Custom image renderer with support for sizing syntax
   // Note: indexeddb:// URLs are pre-resolved to blob: URLs before markdown rendering
   // The sizing dimensions are passed via the title attribute in "width|height" format
