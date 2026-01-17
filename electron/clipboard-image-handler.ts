@@ -55,6 +55,7 @@ const getMimeFromExt = (ext: string): string => {
 
 /**
  * Finds the image file by ID (checking various extensions).
+ * @electron-only This function is only available in the Electron main process.
  */
 const findImageFile = (basePath: string, imageId: string): string | null => {
   for (const ext of SUPPORTED_IMAGE_EXTENSIONS) {
