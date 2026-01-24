@@ -1,4 +1,5 @@
 import { ipcMain, clipboard } from 'electron';
+import { promises as fsPromises } from 'fs';
 import * as fs from 'fs';
 import * as path from 'path';
 import { IPC } from './shared-with-frontend/ipc-events.const';
@@ -89,7 +90,7 @@ export const initClipboardImageHandlers = (): void => {
         const filePath = path.join(basePath, fileName);
         const buffer = Buffer.from(base64Data, 'base64');
 
-        fs.writeFileSync(filePath, new Uint8Array(buffer));
+        await fsPromises.writeFile(filePath, new Uint8Array(buffer));
 
         return filePath;
       },
@@ -107,7 +108,7 @@ export const initClipboardImageHandlers = (): void => {
           return null;
         }
 
-        const buffer = fs.readFileSync(filePath);
+        const buffer = await fsPromises.readFile(filePath);
         const ext = path.extname(filePath);
         const mimeType = getMimeFromExt(ext);
 
@@ -130,7 +131,7 @@ export const initClipboardImageHandlers = (): void => {
           return false;
         }
 
-        fs.unlinkSync(filePath);
+        await fsPromises.unlink(filePath);
         return true;
       },
       { validatePath: true, errorValue: false },
@@ -146,7 +147,7 @@ export const initClipboardImageHandlers = (): void => {
           return [];
         }
 
-        const files = fs.readdirSync(basePath);
+        const files = await fsPromises.readdir(basePath);
         const imageExtensions = new Set(SUPPORTED_IMAGE_EXTENSIONS);
 
         const images: ClipboardImageMeta[] = [];
@@ -158,7 +159,7 @@ export const initClipboardImageHandlers = (): void => {
           }
 
           const filePath = path.join(basePath, file);
-          const stats = fs.statSync(filePath);
+          const stats = await fsPromises.stat(filePath);
           const id = path.basename(file, ext);
 
           images.push({
@@ -200,10 +201,10 @@ export const initClipboardImageHandlers = (): void => {
         const destPath = path.join(basePath, destFileName);
 
         // Copy the file
-        fs.copyFileSync(filePath, destPath);
+        await fsPromises.copyFile(filePath, destPath);
 
         // Get file stats
-        const stats = fs.statSync(destPath);
+        const stats = await fsPromises.stat(destPath);
         const mimeType = getMimeFromExt(ext);
 
         return {
@@ -237,9 +238,9 @@ export const initClipboardImageHandlers = (): void => {
 
         // Save as PNG
         const pngBuffer = image.toPNG();
-        fs.writeFileSync(filePath, new Uint8Array(pngBuffer));
+        await fsPromises.writeFile(filePath, new Uint8Array(pngBuffer));
 
-        const stats = fs.statSync(filePath);
+        const stats = await fsPromises.stat(filePath);
 
         return {
           id,
