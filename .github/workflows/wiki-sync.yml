@@ -5,13 +5,13 @@ name: GitHub Wiki - Lint and (r)Sync
   pull_request:
     branches: [master, main]
     paths:
-      - 'docs/wiki/**'
+      - "docs/wiki/**"
       - .github/workflows/wiki-sync.yml
       - .github/annotations/wiki-lint-problem-matcher.json
   push:
     branches: [master, main]
     paths:
-      - 'docs/wiki/**'
+      - "docs/wiki/**"
       - .github/workflows/wiki-sync.yml
       - .github/annotations/wiki-lint-problem-matcher.json
 
