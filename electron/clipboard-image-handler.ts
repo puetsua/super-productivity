@@ -2,6 +2,7 @@ import { ipcMain, clipboard } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 import { IPC } from './shared-with-frontend/ipc-events.const';
+import { createValidatedHandler } from './ipc-handler-wrapper';
 
 interface ClipboardImageMeta {
   id: string;
@@ -72,13 +73,17 @@ export const initClipboardImageHandlers = (): void => {
   // Save clipboard image
   ipcMain.handle(
     IPC.CLIPBOARD_IMAGE_SAVE,
-    async (
-      _,
-      args: { basePath: string; fileName: string; base64Data: string; mimeType: string },
-    ) => {
-      const { basePath, fileName, base64Data } = args;
-
-      try {
+    createValidatedHandler(
+      async ({
+        basePath,
+        fileName,
+        base64Data,
+      }: {
+        basePath: string;
+        fileName: string;
+        base64Data: string;
+        mimeType: string;
+      }) => {
         ensureDir(basePath);
 
         const filePath = path.join(basePath, fileName);
@@ -87,20 +92,16 @@ export const initClipboardImageHandlers = (): void => {
         fs.writeFileSync(filePath, new Uint8Array(buffer));
 
         return filePath;
-      } catch (error) {
-        console.error('Error saving clipboard image:', error);
-        throw error;
-      }
-    },
+      },
+      { validatePath: true },
+    ),
   );
 
   // Load clipboard image
   ipcMain.handle(
     IPC.CLIPBOARD_IMAGE_LOAD,
-    async (_, args: { basePath: string; imageId: string }) => {
-      const { basePath, imageId } = args;
-
-      try {
+    createValidatedHandler(
+      async ({ basePath, imageId }: { basePath: string; imageId: string }) => {
         const filePath = findImageFile(basePath, imageId);
         if (!filePath) {
           return null;
@@ -114,20 +115,16 @@ export const initClipboardImageHandlers = (): void => {
           base64: buffer.toString('base64'),
           mimeType,
         };
-      } catch (error) {
-        console.error('Error loading clipboard image:', error);
-        return null;
-      }
-    },
+      },
+      { validatePath: true, errorValue: null },
+    ),
   );
 
   // Delete clipboard image
   ipcMain.handle(
     IPC.CLIPBOARD_IMAGE_DELETE,
-    async (_, args: { basePath: string; imageId: string }) => {
-      const { basePath, imageId } = args;
-
-      try {
+    createValidatedHandler(
+      async ({ basePath, imageId }: { basePath: string; imageId: string }) => {
         const filePath = findImageFile(basePath, imageId);
         if (!filePath) {
           return false;
@@ -135,73 +132,65 @@ export const initClipboardImageHandlers = (): void => {
 
         fs.unlinkSync(filePath);
         return true;
-      } catch (error) {
-        console.error('Error deleting clipboard image:', error);
-        return false;
-      }
-    },
+      },
+      { validatePath: true, errorValue: false },
+    ),
   );
 
   // List clipboard images
-  ipcMain.handle(IPC.CLIPBOARD_IMAGE_LIST, async (_, args: { basePath: string }) => {
-    const { basePath } = args;
-
-    try {
-      if (!fs.existsSync(basePath)) {
-        return [];
-      }
-
-      const files = fs.readdirSync(basePath);
-      const imageExtensions = new Set(SUPPORTED_IMAGE_EXTENSIONS);
-
-      const images: ClipboardImageMeta[] = [];
-
-      for (const file of files) {
-        const ext = path.extname(file).toLowerCase();
-        if (!imageExtensions.has(ext)) {
-          continue;
+  ipcMain.handle(
+    IPC.CLIPBOARD_IMAGE_LIST,
+    createValidatedHandler(
+      async ({ basePath }: { basePath: string }) => {
+        if (!fs.existsSync(basePath)) {
+          return [];
         }
 
-        const filePath = path.join(basePath, file);
-        const stats = fs.statSync(filePath);
-        const id = path.basename(file, ext);
+        const files = fs.readdirSync(basePath);
+        const imageExtensions = new Set(SUPPORTED_IMAGE_EXTENSIONS);
 
-        images.push({
-          id,
-          mimeType: getMimeFromExt(ext),
-          createdAt: stats.birthtimeMs,
-          size: stats.size,
-        });
-      }
+        const images: ClipboardImageMeta[] = [];
 
-      return images;
-    } catch (error) {
-      console.error('Error listing clipboard images:', error);
-      return [];
-    }
-  });
+        for (const file of files) {
+          const ext = path.extname(file).toLowerCase();
+          if (!imageExtensions.has(ext)) {
+            continue;
+          }
+
+          const filePath = path.join(basePath, file);
+          const stats = fs.statSync(filePath);
+          const id = path.basename(file, ext);
+
+          images.push({
+            id,
+            mimeType: getMimeFromExt(ext),
+            createdAt: stats.birthtimeMs,
+            size: stats.size,
+          });
+        }
+
+        return images;
+      },
+      { validatePath: true, errorValue: [] },
+    ),
+  );
 
   // Get clipboard image file path
   ipcMain.handle(
     IPC.CLIPBOARD_IMAGE_GET_PATH,
-    async (_, args: { basePath: string; imageId: string }) => {
-      const { basePath, imageId } = args;
-
-      try {
+    createValidatedHandler(
+      async ({ basePath, imageId }: { basePath: string; imageId: string }) => {
         return findImageFile(basePath, imageId);
-      } catch (error) {
-        console.error('Error getting clipboard image path:', error);
-        return null;
-      }
-    },
+      },
+      { validatePath: true, errorValue: null },
+    ),
   );
 
   // Copy image file from clipboard to clipboard-images directory
   ipcMain.handle(
     IPC.CLIPBOARD_COPY_IMAGE_FILE,
-    async (_, args: { basePath: string; filePath: string }) => {
-      try {
-        const { basePath, filePath } = args;
+    createValidatedHandler(
+      async ({ basePath, filePath }: { basePath: string; filePath: string }) => {
         ensureDir(basePath);
 
         // Generate unique ID
@@ -223,86 +212,85 @@ export const initClipboardImageHandlers = (): void => {
           size: stats.size,
           createdAt: Date.now(),
         };
-      } catch (error) {
-        console.error('Error copying clipboard image file:', error);
-        return null;
-      }
-    },
+      },
+      { validatePath: true, errorValue: null },
+    ),
   );
 
   // Read image directly from clipboard
-  ipcMain.handle(IPC.CLIPBOARD_READ_IMAGE, async (_, args: { basePath: string }) => {
-    try {
-      const image = clipboard.readImage();
+  ipcMain.handle(
+    IPC.CLIPBOARD_READ_IMAGE,
+    createValidatedHandler(
+      async ({ basePath }: { basePath: string }) => {
+        const image = clipboard.readImage();
 
-      if (image.isEmpty()) {
-        return null;
-      }
+        if (image.isEmpty()) {
+          return null;
+        }
 
-      const { basePath } = args;
-      ensureDir(basePath);
+        ensureDir(basePath);
 
-      // Generate unique ID
-      const id = Date.now().toString(36) + Math.random().toString(36).substring(2);
-      const fileName = `${id}.png`;
-      const filePath = path.join(basePath, fileName);
+        // Generate unique ID
+        const id = Date.now().toString(36) + Math.random().toString(36).substring(2);
+        const fileName = `${id}.png`;
+        const filePath = path.join(basePath, fileName);
 
-      // Save as PNG
-      const pngBuffer = image.toPNG();
-      fs.writeFileSync(filePath, new Uint8Array(pngBuffer));
+        // Save as PNG
+        const pngBuffer = image.toPNG();
+        fs.writeFileSync(filePath, new Uint8Array(pngBuffer));
 
-      const stats = fs.statSync(filePath);
+        const stats = fs.statSync(filePath);
 
-      return {
-        id,
-        mimeType: 'image/png',
-        size: stats.size,
-        createdAt: Date.now(),
-      };
-    } catch (error) {
-      console.error('[CLIPBOARD] Error reading image from clipboard:', error);
-      return null;
-    }
-  });
+        return {
+          id,
+          mimeType: 'image/png',
+          size: stats.size,
+          createdAt: Date.now(),
+        };
+      },
+      { validatePath: true, errorValue: null },
+    ),
+  );
 
-  ipcMain.handle(IPC.CLIPBOARD_GET_FILE_PATHS, async () => {
-    try {
-      const filePaths: string[] = [];
+  ipcMain.handle(
+    IPC.CLIPBOARD_GET_FILE_PATHS,
+    createValidatedHandler(
+      async () => {
+        const filePaths: string[] = [];
 
-      // Note: Electron's clipboard API on Windows doesn't reliably read file paths
-      // when files are copied. clipboard.readImage() is used as fallback.
+        // Note: Electron's clipboard API on Windows doesn't reliably read file paths
+        // when files are copied. clipboard.readImage() is used as fallback.
 
-      // Try reading plain text (sometimes contains file paths)
-      const plainText = clipboard.readText();
-      if (plainText && plainText.startsWith('file://')) {
-        const lines = plainText.split('\n');
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (trimmed.startsWith('file://')) {
-            let filePath = trimmed.substring(7);
-            if (process.platform === 'win32' && filePath.startsWith('/')) {
-              filePath = filePath.substring(1);
+        // Try reading plain text (sometimes contains file paths)
+        const plainText = clipboard.readText();
+        if (plainText && plainText.startsWith('file://')) {
+          const lines = plainText.split('\n');
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed.startsWith('file://')) {
+              let filePath = trimmed.substring(7);
+              if (process.platform === 'win32' && filePath.startsWith('/')) {
+                filePath = filePath.substring(1);
+              }
+              filePath = decodeURIComponent(filePath);
+              if (process.platform === 'win32') {
+                filePath = filePath.replace(/\//g, '\\');
+              }
+              filePaths.push(filePath);
             }
-            filePath = decodeURIComponent(filePath);
-            if (process.platform === 'win32') {
-              filePath = filePath.replace(/\//g, '\\');
-            }
-            filePaths.push(filePath);
           }
         }
-      }
 
-      // Filter to only existing image files
-      const imageFiles = filePaths.filter((filePath) => {
-        if (!fs.existsSync(filePath)) return false;
-        const ext = path.extname(filePath).toLowerCase();
-        return SUPPORTED_IMAGE_EXTENSIONS.includes(ext);
-      });
+        // Filter to only existing image files
+        const imageFiles = filePaths.filter((filePath) => {
+          if (!fs.existsSync(filePath)) return false;
+          const ext = path.extname(filePath).toLowerCase();
+          return SUPPORTED_IMAGE_EXTENSIONS.includes(ext);
+        });
 
-      return imageFiles;
-    } catch (error) {
-      console.error('[CLIPBOARD] Error reading clipboard file paths:', error);
-      return [];
-    }
-  });
+        return imageFiles;
+      },
+      { errorValue: [] },
+    ),
+  );
 };
