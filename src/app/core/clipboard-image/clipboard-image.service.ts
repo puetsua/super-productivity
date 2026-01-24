@@ -3,6 +3,7 @@ import { IS_ELECTRON } from '../../app.constants';
 import { SnackService } from '../snack/snack.service';
 import { T } from '../../t.const';
 import { GlobalConfigService } from '../../features/config/global-config.service';
+import { getDefaultClipboardImagesPath } from '../../util/get-default-clipboard-images-path';
 
 const DB_NAME = 'sp-clipboard-images';
 const DB_VERSION = 1;
@@ -121,10 +122,24 @@ export class ClipboardImageService {
         }
       }
 
-      // Fallback: try the old method
-      const filePathResult = await this._tryGetImageFromFilePaths();
-      if (filePathResult) {
-        return filePathResult;
+      // Try reading image directly from clipboard using Electron API
+      const basePath = await this._getElectronImagePath();
+      const result = await window.ea.readClipboardImage(basePath);
+
+      if (result) {
+        // Get the saved file path and generate file:// URL
+        const savedFilePath = await window.ea.getClipboardImagePath(basePath, result.id);
+        if (savedFilePath) {
+          const imageUrl = `file://${savedFilePath.replace(/\\/g, '/')}`;
+          const markdownText = `![pasted image](${imageUrl})`;
+
+          this._snackService.open({
+            type: 'SUCCESS',
+            msg: T.F.CLIPBOARD_IMAGE.PASTE_SUCCESS,
+          });
+
+          return { success: true, imageUrl, markdownText };
+        }
       }
     }
 
@@ -487,8 +502,7 @@ export class ClipboardImageService {
     }
 
     // Use default path
-    const userDataPath = await window.ea.getUserDataPath();
-    return `${userDataPath}/clipboard-images`;
+    return getDefaultClipboardImagesPath();
   }
 
   private async _saveImageElectron(

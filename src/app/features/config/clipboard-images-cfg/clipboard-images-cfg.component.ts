@@ -23,6 +23,7 @@ import { MatFormField, MatHint, MatLabel } from '@angular/material/form-field';
 import { MatInput } from '@angular/material/input';
 import { FormsModule } from '@angular/forms';
 import { DialogClipboardImagesManagerComponent } from './dialog-clipboard-images-manager/dialog-clipboard-images-manager.component';
+import { getDefaultClipboardImagesPath } from '../../../util/get-default-clipboard-images-path';
 
 @Component({
   selector: 'clipboard-images-cfg',
@@ -77,10 +78,7 @@ export class ClipboardImagesCfgComponent implements OnInit {
 
   private async loadDefaultPath(): Promise<void> {
     try {
-      const userDataPath = await window.ea.getUserDataPath();
-      const isWindows = !window.ea.isLinux() && !window.ea.isMacOS();
-      const separator = isWindows ? '\\' : '/';
-      this.defaultImagePath = `${userDataPath}${separator}clipboard-images`;
+      this.defaultImagePath = await getDefaultClipboardImagesPath();
       this._cd.markForCheck();
     } catch (error) {
       console.error('Error loading default clipboard image path:', error);
