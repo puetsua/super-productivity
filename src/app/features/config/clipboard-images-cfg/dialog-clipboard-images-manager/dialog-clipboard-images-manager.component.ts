@@ -91,7 +91,7 @@ export class DialogClipboardImagesManagerComponent implements OnInit {
       // Load image URLs for preview
       const urlMap = new Map<string, string>();
       for (const image of images) {
-        const url = await this._clipboardImageService.resolveUrl(
+        const url = await this._clipboardImageService.resolveIndexedDbUrl(
           this._clipboardImageService.getImageUrl(image.id),
         );
         if (url) {

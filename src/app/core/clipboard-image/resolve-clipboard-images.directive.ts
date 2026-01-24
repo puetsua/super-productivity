@@ -86,7 +86,8 @@ export class ResolveClipboardImagesDirective implements OnInit, OnDestroy, OnCha
         if (!imageId || this._resolvedImageIds.has(imageId)) continue;
 
         try {
-          const resolvedUrl = await this._clipboardImageService.resolveUrl(indexedDbUrl);
+          const resolvedUrl =
+            await this._clipboardImageService.resolveIndexedDbUrl(indexedDbUrl);
           if (resolvedUrl) {
             img.src = resolvedUrl;
             img.classList.remove('indexeddb-image');

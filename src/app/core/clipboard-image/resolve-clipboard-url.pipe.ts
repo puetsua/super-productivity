@@ -28,7 +28,9 @@ export class ResolveClipboardUrlPipe implements PipeTransform {
     }
 
     // Use defer to ensure the promise is created fresh and properly handled
-    const resolved$ = defer(() => from(this._clipboardImageService.resolveUrl(url))).pipe(
+    const resolved$ = defer(() =>
+      from(this._clipboardImageService.resolveIndexedDbUrl(url)),
+    ).pipe(
       map((resolvedUrl) => {
         if (resolvedUrl) {
           return resolvedUrl;

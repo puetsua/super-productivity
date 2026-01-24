@@ -117,7 +117,7 @@ export class TaskAttachmentListComponent {
               return newSet;
             });
 
-            const resolved = await this._clipboardImageService.resolveUrl(url);
+            const resolved = await this._clipboardImageService.resolveIndexedDbUrl(url);
             if (resolved) {
               this._resolvedUrlsMap.update((map) => {
                 const newMap = new Map(map);

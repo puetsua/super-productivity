@@ -269,7 +269,7 @@ export class ClipboardImageService {
 
     await Promise.all(
       uniqueUrls.map(async (url) => {
-        const blobUrl = await this.resolveUrl(url);
+        const blobUrl = await this.resolveIndexedDbUrl(url);
         if (blobUrl) {
           resolved.set(url, blobUrl);
         }
@@ -283,17 +283,15 @@ export class ClipboardImageService {
     return result;
   }
 
-  async resolveUrl(indexedDbUrl: string): Promise<string | null> {
+  async resolveIndexedDbUrl(indexedDbUrl: string): Promise<string | null> {
+    if (!this.isIndexedDbUrl(indexedDbUrl)) return null;
+
     const imageId = this.extractImageId(indexedDbUrl);
     if (!imageId) return null;
 
     const cached = this._blobUrlCache.get(imageId);
     if (cached) return cached;
 
-    return IS_ELECTRON ? this._resolveElectronUrl(imageId) : this._resolveWebUrl(imageId);
-  }
-
-  private async _resolveWebUrl(imageId: string): Promise<string | null> {
     try {
       const blob = await this.getImage(imageId);
       if (!blob) return null;
@@ -302,22 +300,7 @@ export class ClipboardImageService {
       this._blobUrlCache.set(imageId, blobUrl);
       return blobUrl;
     } catch (error) {
-      console.error('Error resolving web URL for clipboard image:', error);
-      return null;
-    }
-  }
-
-  private async _resolveElectronUrl(imageId: string): Promise<string | null> {
-    try {
-      const basePath = await this._getElectronImagePath();
-      const filePath = await window.ea.getClipboardImagePath(basePath, imageId);
-      if (!filePath) return null;
-
-      const fileUrl = `file://${filePath.replace(/\\/g, '/')}`;
-      this._blobUrlCache.set(imageId, fileUrl);
-      return fileUrl;
-    } catch (error) {
-      console.error('Error resolving Electron URL for clipboard image:', error);
+      console.error('Error resolving indexeddb URL for clipboard image:', error);
       return null;
     }
   }
